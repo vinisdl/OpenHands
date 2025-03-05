@@ -14,6 +14,7 @@ from openhands.server.routes.conversation import app as conversation_api_router
 from openhands.server.routes.feedback import app as feedback_api_router
 from openhands.server.routes.files import app as files_api_router
 from openhands.server.routes.github import app as github_api_router
+from openhands.server.routes.azure import router as azure_api_router
 from openhands.server.routes.manage_conversations import (
     app as manage_conversation_api_router,
 )
