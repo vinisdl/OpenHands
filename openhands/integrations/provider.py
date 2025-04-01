@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import MappingProxyType
 from typing import Annotated, Any, Coroutine, Literal, overload
 
@@ -18,6 +19,9 @@ from openhands.core.logger import openhands_logger as logger
 from openhands.events.action.action import Action
 from openhands.events.action.commands import CmdRunAction
 from openhands.events.stream import EventStream
+from openhands.integrations.azuredevops.azuredevops_service import (
+    AzureDevOpsServiceImpl,
+)
 from openhands.integrations.github.github_service import GithubServiceImpl
 from openhands.integrations.gitlab.gitlab_service import GitLabServiceImpl
 from openhands.integrations.service_types import (
@@ -147,6 +151,7 @@ class ProviderHandler:
         self.service_class_map: dict[ProviderType, type[GitService]] = {
             ProviderType.GITHUB: GithubServiceImpl,
             ProviderType.GITLAB: GitLabServiceImpl,
+            ProviderType.AZUREDEVOPS: AzureDevOpsServiceImpl,
         }
 
         self.external_auth_id = external_auth_id
@@ -197,6 +202,8 @@ class ProviderHandler:
         Get repositories from a selected providers with pagination support
         """
 
+        print(f'provider tokens: {self.provider_tokens}')
+
         all_repos: list[Repository] = []
         for provider in self.provider_tokens:
             try:
@@ -235,6 +242,7 @@ class ProviderHandler:
         provider_domains = {
             ProviderType.GITHUB: 'github.com',
             ProviderType.GITLAB: 'gitlab.com',
+            ProviderType.AZUREDEVOPS: 'dev.azure.com',
         }
 
         for provider in self.provider_tokens:
@@ -248,6 +256,21 @@ class ProviderHandler:
 
                         if provider == ProviderType.GITLAB:
                             return f'https://oauth2:{git_token.get_secret_value()}@{domain}/{repository}.git'
+
+                        if provider == ProviderType.AZUREDEVOPS:
+                            print(f'Azure DevOps repo: {repository}')
+                            # Azure DevOps URL format: https://{PAT}@dev.azure.com/{organization}/{project}/_git/{repository}
+                            parts = repository.split('/')
+                            if len(parts) >= 2:
+                                organization = parts[0]
+                                repo_name = parts[-1]
+                                project = parts[1] if len(parts) >= 3 else repo_name
+                                # Get the service to access its organization and project properties
+                                service = self._get_service(provider)
+                                azure_org = getattr(service, 'organization', os.environ.get('AZURE_DEVOPS_ORG', ''))
+                                azure_project = getattr(service, 'project', os.environ.get('AZURE_DEVOPS_PROJECT', ''))
+                                return f'https://{git_token.get_secret_value()}@{domain}/{azure_org}/{azure_project}/_git/{repo_name}'
+                            return f'https://{git_token.get_secret_value()}@{domain}/{repository}'
 
                         return f'https://{git_token.get_secret_value()}@{domain}/{repository}.git'
             except Exception:
