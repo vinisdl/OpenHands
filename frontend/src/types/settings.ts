@@ -1,6 +1,7 @@
 export const ProviderOptions = {
   github: "github",
   gitlab: "gitlab",
+  azure_devops: "azure_devops",
 } as const;
 
 export type Provider = keyof typeof ProviderOptions;
@@ -8,6 +9,8 @@ export type Provider = keyof typeof ProviderOptions;
 export type ProviderToken = {
   token: string;
   host: string | null;
+  organization?: string | null;
+  project?: string | null;
 };
 
 export type MCPSSEServer = {
