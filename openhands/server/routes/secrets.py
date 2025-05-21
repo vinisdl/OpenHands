@@ -2,8 +2,7 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 
 from openhands.core.logger import openhands_logger as logger
-from openhands.integrations.provider import CustomSecret
-from openhands.integrations.provider import PROVIDER_TOKEN_TYPE
+from openhands.integrations.provider import PROVIDER_TOKEN_TYPE, CustomSecret
 from openhands.integrations.service_types import ProviderType
 from openhands.integrations.utils import validate_provider_token
 from openhands.server.settings import (
@@ -59,9 +58,14 @@ async def invalidate_legacy_secrets_store(
 def process_token_validation_result(
     confirmed_token_type: ProviderType | None, token_type: ProviderType
 ) -> str:
-    if not confirmed_token_type or confirmed_token_type != token_type:
+    if not confirmed_token_type:
         return (
             f'Invalid token. Please make sure it is a valid {token_type.value} token.'
+        )
+    elif confirmed_token_type != token_type:
+        return (
+            f'Token validation failed. The provided token appears to be for {confirmed_token_type.value}, '
+            f'but was specified as {token_type.value}.'
         )
 
     return ''
