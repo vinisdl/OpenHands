@@ -44,19 +44,10 @@ async def validate_provider_token(
         # For Azure DevOps, we need organization and project
         # These would typically be provided in the ProviderToken
         # but for validation we just check if the token works
-        azure_service = AzureDevOpsService(token=token)
-        if base_domain:
-            # If base_domain is provided, it might contain organization info
-            parts = base_domain.split('/')
-            if len(parts) >= 1:
-                azure_service.organization = parts[0]
-            if len(parts) >= 2:
-                azure_service.project = parts[1]
-
-        # If we have organization set, try to get user info
-        if azure_service.organization:
-            await azure_service.get_user()
-            return ProviderType.AZURE_DEVOPS
+        azure_service = AzureDevOpsService(token=token, base_domain=base_domain)
+        # If we have organization set, try to get user info        
+        await azure_service.get_user()
+        return ProviderType.AZURE_DEVOPS
     except Exception:
         pass
 
