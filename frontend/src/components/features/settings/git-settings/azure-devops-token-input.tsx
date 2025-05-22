@@ -6,22 +6,18 @@ import { KeyStatusIcon } from "../key-status-icon";
 
 interface AzureDevOpsTokenInputProps {
   onChange: (value: string) => void;
-  onOrganizationChange: (value: string) => void;
-  onProjectChange: (value: string) => void;
+  onAzureDevOpsHostChange: (value: string) => void;
   isAzureDevOpsTokenSet: boolean;
   name: string;
-  organizationSet: string | null | undefined;
-  projectSet: string | null | undefined;
+  azureDevOpsHostSet: string | null | undefined;
 }
 
 export function AzureDevOpsTokenInput({
   onChange,
-  onOrganizationChange,
-  onProjectChange,
+  onAzureDevOpsHostChange,
   isAzureDevOpsTokenSet,
   name,
-  organizationSet,
-  projectSet,
+  azureDevOpsHostSet,
 }: AzureDevOpsTokenInputProps) {
   const { t } = useTranslation();
 
@@ -46,35 +42,18 @@ export function AzureDevOpsTokenInput({
       />
 
       <SettingsInput
-        onChange={onOrganizationChange || (() => {})}
-        name="azure-devops-organization-input"
-        testId="azure-devops-organization-input"
-        label={t(I18nKey.AZURE_DEVOPS$ORGANIZATION_LABEL)}
+        onChange={onAzureDevOpsHostChange || (() => {})}
+        name="azure-devops-host-input"
+        testId="azure-devops-host-input"
+        label={t(I18nKey.AZURE_DEVOPS$HOST_LABEL)}
         type="text"
         className="w-[680px]"
-        placeholder="your-organization"
-        defaultValue={organizationSet || undefined}
+        placeholder="dev.azure.com/your-organization/your-project"
+        defaultValue={azureDevOpsHostSet || undefined}
         startContent={
-          organizationSet &&
-          organizationSet.trim() !== "" && (
-            <KeyStatusIcon testId="ado-set-organization-indicator" isSet />
-          )
-        }
-      />
-
-      <SettingsInput
-        onChange={onProjectChange || (() => {})}
-        name="azure-devops-project-input"
-        testId="azure-devops-project-input"
-        label={t(I18nKey.AZURE_DEVOPS$PROJECT_LABEL)}
-        type="text"
-        className="w-[680px]"
-        placeholder="your-project"
-        defaultValue={projectSet || undefined}
-        startContent={
-          projectSet &&
-          projectSet.trim() !== "" && (
-            <KeyStatusIcon testId="ado-set-project-indicator" isSet />
+          azureDevOpsHostSet &&
+          azureDevOpsHostSet.trim() !== "" && (
+            <KeyStatusIcon testId="ado-set-host-indicator" isSet />
           )
         }
       />

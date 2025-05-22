@@ -8467,17 +8467,13 @@
         "en": "Azure DevOps Personal Access Token",
         "pt": "Token de Acesso Pessoal do Azure DevOps"
     },
-    "AZURE_DEVOPS$ORGANIZATION_LABEL": {
-        "en": "Azure DevOps Organization",
-        "pt": "Organização do Azure DevOps"
-    },
-    "AZURE_DEVOPS$PROJECT_LABEL": {
-        "en": "Azure DevOps Project",
-        "pt": "Projeto do Azure DevOps"
+    "AZURE_DEVOPS$HOST_LABEL": {
+        "en": "Azure DevOps Host (e.g., dev.azure.com/organization/project)",
+        "pt": "Host do Azure DevOps (ex: dev.azure.com/organização/projeto)"
     },
     "AZURE_DEVOPS$TOKEN_HELP_TEXT": {
-        "en": "To use Azure DevOps repositories, you need to provide a Personal Access Token (PAT) with the appropriate permissions.",
-        "pt": "Para usar repositórios do Azure DevOps, você precisa fornecer um Token de Acesso Pessoal (PAT) com as permissões apropriadas."
+        "en": "To use Azure DevOps repositories, you need to provide a Personal Access Token (PAT) with the appropriate permissions and the Azure DevOps host URL in the format 'dev.azure.com/organization/project'.",
+        "pt": "Para usar repositórios do Azure DevOps, você precisa fornecer um Token de Acesso Pessoal (PAT) com as permissões apropriadas e o URL do host do Azure DevOps no formato 'dev.azure.com/organização/projeto'."
     },
     "AZURE_DEVOPS$TOKEN_HELP_LINK": {
         "en": "Learn how to create an Azure DevOps personal access token",
