@@ -151,7 +151,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                 # If we can't extract from base_domain, we can't proceed
                 return []
                 
-            url = f"{self.base_url}/{project}/_apis/git/repositories"
+            url = f"https://dev.azure.com/{organization}/{project}/_apis/git/repositories"
             data, _ = await self._make_request(url)
             
             repositories = []
@@ -192,7 +192,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                 
             # Azure DevOps doesn't have a dedicated search API like GitHub
             # We'll get all repos and filter them by name
-            url = f"{self.base_url}/{project}/_apis/git/repositories"
+            url = f"https://dev.azure.com/{organization}/{project}/_apis/git/repositories"
             data, _ = await self._make_request(url)
             
             repositories = []
@@ -227,7 +227,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                 return []
                 
             # Get active pull requests with conflicts
-            url = f"{self.base_url}/{project}/_apis/git/pullrequests"
+            url = f"https://dev.azure.com/{organization}/{project}/_apis/git/pullrequests"
             params = {"status": "active"}
             data, _ = await self._make_request(url, params)
             
@@ -251,7 +251,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                     # Get PR status
                     pr_id = pr.get("pullRequestId", 0)
                     repo_id = pr.get("repository", {}).get("id", "")
-                    status_url = f"{self.base_url}/{project}/_apis/git/repositories/{repo_id}/pullRequests/{pr_id}/statuses"
+                    status_url = f"https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repo_id}/pullRequests/{pr_id}/statuses"
                     status_data, _ = await self._make_request(status_url)
                     
                     has_failing_checks = False
