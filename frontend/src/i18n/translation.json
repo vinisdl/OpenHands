@@ -8769,18 +8769,67 @@
     },
     "AZURE_DEVOPS$TOKEN_LABEL": {
         "en": "Azure DevOps Personal Access Token",
-        "pt": "Token de Acesso Pessoal do Azure DevOps"
+        "pt": "Token de Acesso Pessoal do Azure DevOps",
+        "ja": "Azure DevOps個人用アクセストークン",
+        "zh-CN": "Azure DevOps个人访问令牌",
+        "zh-TW": "Azure DevOps個人訪問令牌",
+        "ko-KR": "Azure DevOps 개인 액세스 토큰",
+        "no": "Azure DevOps personlig tilgangstoken",
+        "it": "Token di accesso personale di Azure DevOps",    
+        "es": "Token de acceso personal de Azure DevOps",
+        "ar": "رمز الوصول الشخصي لـ Azure DevOps",
+        "fr": "Jeton d'accès personnel Azure DevOps",
+        "tr": "Azure DevOps Kişisel Erişim Jetonu",
+        "de": "Azure DevOps-Personen-Zugriffstoken",
+        "uk": "Токен особистого доступу Azure DevOps"
     },
     "AZURE_DEVOPS$HOST_LABEL": {
         "en": "Azure DevOps Host (e.g., dev.azure.com/organization/project)",
-        "pt": "Host do Azure DevOps (ex: dev.azure.com/organização/projeto)"
+        "pt": "Host do Azure DevOps (ex: dev.azure.com/organização/projeto)",
+        "ja": "Azure DevOpsホスト（例：dev.azure.com/organization/project）",
+        "zh-CN": "Azure DevOps主机（例如：dev.azure.com/organization/project）",
+        "zh-TW": "Azure DevOps主機（例如：dev.azure.com/organization/project）",
+        "ko-KR": "Azure DevOps 호스트 (예: dev.azure.com/organization/project)",
+        "no": "Azure DevOps vert (f.eks. dev.azure.com/organization/project)",
+        "it": "Host di Azure DevOps (ad esempio, dev.azure.com/organization/project)",
+        "es": "Host de Azure DevOps (por ejemplo, dev.azure.com/organization/project)",
+        "ar": "مضيف Azure DevOps (على سبيل المثال، dev.azure.com/organization/project)",
+        "fr": "Hôte Azure DevOps (par exemple, dev.azure.com/organization/project)",
+        "tr": "Azure DevOps Sunucusu (örneğin, dev.azure.com/organization/project)",
+        "de": "Azure DevOps-Host (z.B. dev.azure.com/organization/project)",
+        "uk": "Хост Azure DevOps (наприклад, dev.azure.com/organization/project)"
+
     },
     "AZURE_DEVOPS$TOKEN_HELP_TEXT": {
         "en": "To use Azure DevOps repositories, you need to provide a Personal Access Token (PAT) with the appropriate permissions and the Azure DevOps host URL in the format 'dev.azure.com/organization/project'.",
-        "pt": "Para usar repositórios do Azure DevOps, você precisa fornecer um Token de Acesso Pessoal (PAT) com as permissões apropriadas e o URL do host do Azure DevOps no formato 'dev.azure.com/organização/projeto'."
+        "pt": "Para usar repositórios do Azure DevOps, você precisa fornecer um Token de Acesso Pessoal (PAT) com as permissões apropriadas e o URL do host do Azure DevOps no formato 'dev.azure.com/organização/projeto'.",
+        "ja": "Azure DevOpsリポジトリを使用するには、適切な権限を持つ個人用アクセストークン（PAT）と、'dev.azure.com/organization/project'形式のAzure DevOpsホストURLを提供する必要があります。",
+        "zh-CN": "要使用Azure DevOps存储库，您需要提供一个具有适当权限的个人访问令牌（PAT）和格式为'dev.azure.com/organization/project'的Azure DevOps主机URL。",
+        "zh-TW": "要使用Azure DevOps存儲庫，您需要提供一個具有適當權限的個人訪問令牌（PAT）和格式為'dev.azure.com/organization/project'的Azure DevOps主機URL。",
+        "ko-KR": "Azure DevOps 리포지토리를 사용하려면 적절한 권한을 가진 개인 액세스 토큰(PAT)과 'dev.azure.com/organization/project' 형식의 Azure DevOps 호스트 URL을 제공해야 합니다.",
+        "no": "Azure DevOps 리포지토리를 사용하려면 적절한 권한을 가진 개인 액세스 토큰(PAT)과 'dev.azure.com/organization/project' 형식의 Azure DevOps 호스트 URL을 제공해야 합니다.",
+        "it": "Per utilizzare i repository di Azure DevOps, è necessario fornire un Token di Accesso Personale (PAT) con le autorizzazioni appropriate e l'URL dell'host di Azure DevOps nel formato 'dev.azure.com/organization/project'.",
+        "es": "Para usar los repositorios de Azure DevOps, necesita proporcionar un Token de Acceso Personal (PAT) con los permisos adecuados y la URL del host de Azure DevOps en el formato 'dev.azure.com/organization/project'.",
+        "ar": "لاستخدام مستودعات Azure DevOps، تحتاج إلى توفير رمز وصول شخصي (PAT) بالأذونات المناسبة ورابط مضيف Azure DevOps بتنسيق 'dev.azure.com/organization/project'.",
+        "fr": "Pour utiliser les dépôts Azure DevOps, vous devez fournir un jeton d'accès personnel (PAT) avec les autorisations appropriées et l'URL de l'hôte Azure DevOps au format 'dev.azure.com/organization/project'.",
+        "tr": "Azure DevOps depolarını kullanmak için uygun izinlere sahip bir Kişisel Erişim Jetonu (PAT) ve 'dev.azure.com/organization/project' formatında Azure DevOps ana bilgisayar URL'si sağlamanız gerekir.",
+        "de": "Um Azure DevOps-Repositories zu verwenden, müssen Sie ein Personal Access Token (PAT) mit den entsprechenden Berechtigungen und die Azure DevOps-Host-URL im Format 'dev.azure.com/organization/project' angeben.",
+        "uk": "Щоб використовувати репозиторії Azure DevOps, вам потрібно надати токен особистого доступу (PAT) з відповідними дозволами та URL-адресу хоста Azure DevOps у форматі 'dev.azure.com/organization/project'."
     },
     "AZURE_DEVOPS$TOKEN_HELP_LINK": {
         "en": "Learn how to create an Azure DevOps personal access token",
-        "pt": "Saiba como criar um token de acesso pessoal do Azure DevOps"
+        "pt": "Saiba como criar um token de acesso pessoal do Azure DevOps",
+        "ja": "Azure DevOpsの個人用アクセストークンの作成方法を学ぶ",
+        "zh-CN": "了解如何创建Azure DevOps个人访问令牌",
+        "zh-TW": "了解如何創建Azure DevOps個人訪問令牌",
+        "ko-KR": "Azure DevOps 개인 액세스 토큰을 만드는 방법 알아보기",
+        "no": "Lær hvordan du oppretter et personlig tilgangstoken for Azure DevOps",
+        "it": "Scopri come creare un token di accesso personale di Azure DevOps",
+        "es": "Aprenda cómo crear un token de acceso personal de Azure DevOps",
+        "ar": "تعرف على كيفية إنشاء رمز وصول شخصي لـ Azure DevOps",
+        "fr": "Découvrez comment créer un jeton d'accès personnel Azure DevOps",
+        "tr": "Azure DevOps kişisel erişim jetonu nasıl oluşturulur öğrenin",
+        "de": "Erfahren Sie, wie Sie ein Azure DevOps-Personen-Zugriffstoken erstellen",
+        "uk": "Дізнайтеся, як створити токен особистого доступу Azure DevOps"        
     }
 }
