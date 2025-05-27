@@ -35,8 +35,6 @@ class ProviderToken(BaseModel):
     token: SecretStr | None = Field(default=None)
     user_id: str | None = Field(default=None)
     host: str | None = Field(default=None)
-    organization: str | None = Field(default=None)
-    project: str | None = Field(default=None)
 
     model_config = {
         'frozen': True,  # Makes the entire model immutable
@@ -56,14 +54,10 @@ class ProviderToken(BaseModel):
                 token_str = ''
             user_id = token_value.get('user_id')
             host = token_value.get('host')
-            organization = token_value.get('organization')
-            project = token_value.get('project')
             return cls(
                 token=SecretStr(token_str),
                 user_id=user_id,
                 host=host,
-                organization=organization,
-                project=project,
             )
 
         else:
@@ -148,13 +142,8 @@ class ProviderHandler:
             external_token_manager=self.external_token_manager
         )
         
-        # Set provider-specific parameters
-        if provider == ProviderType.AZURE_DEVOPS:
-            if hasattr(service, 'organization') and token.organization:
-                service.organization = token.organization
-            if hasattr(service, 'project') and token.project:
-                service.project = token.project
-        elif token.host and hasattr(service, 'base_domain'):
+        # Set base domain for token validation
+        if token.host and hasattr(service, 'base_domain'):
             service.base_domain = token.host
             
         return service

@@ -9,8 +9,6 @@ export type Provider = keyof typeof ProviderOptions;
 export type ProviderToken = {
   token: string;
   host: string | null;
-  organization?: string | null;
-  project?: string | null;
 };
 
 export type MCPSSEServer = {

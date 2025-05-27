@@ -40,14 +40,12 @@ function GitSettingsScreen() {
     React.useState(false);
   const [gitlabHostInputHasValue, setGitlabHostInputHasValue] =
     React.useState(false);
-  const [azureDevOpsOrganizationInputHasValue, setAzureDevOpsOrganizationInputHasValue] =
-    React.useState(false);
-  const [azureDevOpsProjectInputHasValue, setAzureDevOpsProjectInputHasValue] =
+  const [azureDevOpsHostInputHasValue, setAzureDevOpsHostInputHasValue] =
     React.useState(false);
 
   const existingGithubHost = settings?.PROVIDER_TOKENS_SET.github;
   const existingGitlabHost = settings?.PROVIDER_TOKENS_SET.gitlab;
-  const existingAzureDevOpsOrganization = settings?.PROVIDER_TOKENS_SET.azure_devops;
+  const existingAzureDevOpsHost = settings?.PROVIDER_TOKENS_SET.azure_devops;
 
   const isSaas = config?.APP_MODE === "saas";
   const isGitHubTokenSet = providers.includes("github");
@@ -68,8 +66,7 @@ function GitSettingsScreen() {
     const azureDevOpsToken = formData.get("azure-devops-token-input")?.toString() || "";
     const githubHost = formData.get("github-host-input")?.toString() || "";
     const gitlabHost = formData.get("gitlab-host-input")?.toString() || "";
-    const azureDevOpsOrganization = formData.get("azure-devops-organization-input")?.toString() || "";
-    const azureDevOpsProject = formData.get("azure-devops-project-input")?.toString() || "";
+    const azureDevOpsHost = formData.get("azure-devops-host-input")?.toString() || "";
 
     saveGitProviders(
       {
@@ -78,9 +75,7 @@ function GitSettingsScreen() {
           gitlab: { token: gitlabToken, host: gitlabHost },
           azure_devops: { 
             token: azureDevOpsToken, 
-            host: null, 
-            organization: azureDevOpsOrganization, 
-            project: azureDevOpsProject 
+            host: azureDevOpsHost
           },
         },
       },
@@ -98,8 +93,7 @@ function GitSettingsScreen() {
           setAzureDevOpsTokenInputHasValue(false);
           setGithubHostInputHasValue(false);
           setGitlabHostInputHasValue(false);
-          setAzureDevOpsOrganizationInputHasValue(false);
-          setAzureDevOpsProjectInputHasValue(false);
+          setAzureDevOpsHostInputHasValue(false);
         },
       },
     );
@@ -111,8 +105,7 @@ function GitSettingsScreen() {
     !azureDevOpsTokenInputHasValue &&
     !githubHostInputHasValue &&
     !gitlabHostInputHasValue &&
-    !azureDevOpsOrganizationInputHasValue &&
-    !azureDevOpsProjectInputHasValue;
+    !azureDevOpsHostInputHasValue;
   const shouldRenderExternalConfigureButtons = isSaas && config.APP_SLUG;
 
   return (
@@ -162,14 +155,10 @@ function GitSettingsScreen() {
               onChange={(value) => {
                 setAzureDevOpsTokenInputHasValue(!!value);
               }}
-              onOrganizationChange={(value) => {
-                setAzureDevOpsOrganizationInputHasValue(!!value);
+              onAzureDevOpsHostChange={(value) => {
+                setAzureDevOpsHostInputHasValue(!!value);
               }}
-              onProjectChange={(value) => {
-                setAzureDevOpsProjectInputHasValue(!!value);
-              }}
-              organizationSet={existingAzureDevOpsOrganization}
-              projectSet={existingAzureDevOpsOrganization}
+              azureDevOpsHostSet={existingAzureDevOpsHost}
             />
           )}
         </div>
