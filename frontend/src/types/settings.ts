@@ -36,6 +36,7 @@ export type Settings = {
   AGENT: string;
   LANGUAGE: string;
   LLM_API_KEY_SET: boolean;
+  SEARCH_API_KEY_SET: boolean;
   CONFIRMATION_MODE: boolean;
   SECURITY_ANALYZER: string;
   REMOTE_RUNTIME_RESOURCE_FACTOR: number | null;
@@ -44,6 +45,7 @@ export type Settings = {
   ENABLE_SOUND_NOTIFICATIONS: boolean;
   ENABLE_PROACTIVE_CONVERSATION_STARTERS: boolean;
   USER_CONSENTS_TO_ANALYTICS: boolean | null;
+  SEARCH_API_KEY?: string;
   IS_NEW_USER?: boolean;
   MCP_CONFIG?: MCPConfig;
 };
@@ -55,6 +57,7 @@ export type ApiSettings = {
   language: string;
   llm_api_key: string | null;
   llm_api_key_set: boolean;
+  search_api_key_set: boolean;
   confirmation_mode: boolean;
   security_analyzer: string;
   remote_runtime_resource_factor: number | null;
@@ -62,6 +65,7 @@ export type ApiSettings = {
   enable_sound_notifications: boolean;
   enable_proactive_conversation_starters: boolean;
   user_consents_to_analytics: boolean | null;
+  search_api_key?: string;
   provider_tokens_set: Partial<Record<Provider, string | null>>;
   mcp_config?: {
     sse_servers: (string | MCPSSEServer)[];
@@ -72,10 +76,12 @@ export type ApiSettings = {
 export type PostSettings = Settings & {
   user_consents_to_analytics: boolean | null;
   llm_api_key?: string | null;
+  search_api_key?: string;
   mcp_config?: MCPConfig;
 };
 
 export type PostApiSettings = ApiSettings & {
   user_consents_to_analytics: boolean | null;
+  search_api_key?: string;
   mcp_config?: MCPConfig;
 };

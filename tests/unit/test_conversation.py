@@ -21,6 +21,7 @@ from openhands.server.data_models.conversation_info_result_set import (
 )
 from openhands.server.routes.manage_conversations import (
     InitSessionRequest,
+    InitSessionResponse,
     delete_conversation,
     get_conversation,
     new_conversation,
@@ -76,10 +77,15 @@ def test_client():
 def create_new_test_conversation(
     test_request: InitSessionRequest, auth_type: AuthType | None = None
 ):
+    # Create a mock UserSecrets object with the required custom_secrets attribute
+    mock_user_secrets = MagicMock()
+    mock_user_secrets.custom_secrets = MappingProxyType({})
+
     return new_conversation(
         data=test_request,
         user_id='test_user',
         provider_tokens=MappingProxyType({'github': 'token123'}),
+        user_secrets=mock_user_secrets,
         auth_type=auth_type,
     )
 
@@ -112,8 +118,12 @@ async def test_search_conversations():
                 async def mock_get_connections(*args, **kwargs):
                     return {}
 
+                async def get_agent_loop_info(*args, **kwargs):
+                    return []
+
                 mock_manager.get_running_agent_loops = mock_get_running_agent_loops
                 mock_manager.get_connections = mock_get_connections
+                mock_manager.get_agent_loop_info = get_agent_loop_info
                 with patch(
                     'openhands.server.routes.manage_conversations.datetime'
                 ) as mock_datetime:
@@ -147,7 +157,6 @@ async def test_search_conversations():
                     result_set = await search_conversations(
                         page_id=None,
                         limit=20,
-                        user_id='12345',
                         conversation_store=mock_store,
                     )
 
@@ -165,6 +174,7 @@ async def test_search_conversations():
                                 status=ConversationStatus.STOPPED,
                                 selected_repository='foobar',
                                 num_connections=0,
+                                url=None,
                             )
                         ]
                     )
@@ -193,6 +203,7 @@ async def test_get_conversation():
         ) as mock_manager:
             mock_manager.is_agent_loop_running = AsyncMock(return_value=False)
             mock_manager.get_connections = AsyncMock(return_value={})
+            mock_manager.get_agent_loop_info = AsyncMock(return_value=[])
 
             conversation = await get_conversation(
                 'some_conversation_id', conversation_store=mock_store
@@ -206,6 +217,7 @@ async def test_get_conversation():
                 status=ConversationStatus.STOPPED,
                 selected_repository='foobar',
                 num_connections=0,
+                url=None,
             )
             assert conversation == expected
 
@@ -229,32 +241,34 @@ async def test_get_missing_conversation():
 async def test_new_conversation_success(provider_handler_mock):
     """Test successful creation of a new conversation."""
     with _patch_store():
-        # Mock the _create_new_conversation function directly
+        # Mock the create_new_conversation function directly
         with patch(
-            'openhands.server.routes.manage_conversations._create_new_conversation'
+            'openhands.server.routes.manage_conversations.create_new_conversation'
         ) as mock_create_conversation:
             # Set up the mock to return a conversation ID
-            mock_create_conversation.return_value = 'test_conversation_id'
+            mock_create_conversation.return_value = MagicMock(
+                conversation_id='test_conversation_id',
+                url='https://my-conversation.com',
+                session_api_key=None,
+            )
 
             test_request = InitSessionRequest(
                 repository='test/repo',
                 selected_branch='main',
                 initial_user_msg='Hello, agent!',
                 image_urls=['https://example.com/image.jpg'],
+                conversation_id='test_conversation_id',
             )
 
             # Call new_conversation
             response = await create_new_test_conversation(test_request)
 
             # Verify the response
-            assert isinstance(response, JSONResponse)
-            assert response.status_code == 200
-            assert (
-                response.body.decode('utf-8')
-                == '{"status":"ok","conversation_id":"test_conversation_id"}'
-            )
+            assert isinstance(response, InitSessionResponse)
+            assert response.status == 'ok'
+            assert response.conversation_id == 'test_conversation_id'
 
-            # Verify that _create_new_conversation was called with the correct arguments
+            # Verify that create_new_conversation was called with the correct arguments
             mock_create_conversation.assert_called_once()
             call_args = mock_create_conversation.call_args[1]
             assert call_args['user_id'] == 'test_user'
@@ -269,12 +283,16 @@ async def test_new_conversation_success(provider_handler_mock):
 async def test_new_conversation_with_suggested_task(provider_handler_mock):
     """Test creating a new conversation with a suggested task."""
     with _patch_store():
-        # Mock the _create_new_conversation function directly
+        # Mock the create_new_conversation function directly
         with patch(
-            'openhands.server.routes.manage_conversations._create_new_conversation'
+            'openhands.server.routes.manage_conversations.create_new_conversation'
         ) as mock_create_conversation:
             # Set up the mock to return a conversation ID
-            mock_create_conversation.return_value = 'test_conversation_id'
+            mock_create_conversation.return_value = MagicMock(
+                conversation_id='test_conversation_id',
+                url='https://my-conversation.com',
+                session_api_key=None,
+            )
 
             # Mock SuggestedTask.get_prompt_for_task
             with patch(
@@ -296,20 +314,18 @@ async def test_new_conversation_with_suggested_task(provider_handler_mock):
                     repository='test/repo',
                     selected_branch='main',
                     suggested_task=test_task,
+                    conversation_id='test_conversation_id',
                 )
 
                 # Call new_conversation
                 response = await create_new_test_conversation(test_request)
 
                 # Verify the response
-                assert isinstance(response, JSONResponse)
-                assert response.status_code == 200
-                assert (
-                    response.body.decode('utf-8')
-                    == '{"status":"ok","conversation_id":"test_conversation_id"}'
-                )
+                assert isinstance(response, InitSessionResponse)
+                assert response.status == 'ok'
+                assert response.conversation_id == 'test_conversation_id'
 
-                # Verify that _create_new_conversation was called with the correct arguments
+                # Verify that create_new_conversation was called with the correct arguments
                 mock_create_conversation.assert_called_once()
                 call_args = mock_create_conversation.call_args[1]
                 assert call_args['user_id'] == 'test_user'
@@ -332,9 +348,9 @@ async def test_new_conversation_with_suggested_task(provider_handler_mock):
 async def test_new_conversation_missing_settings(provider_handler_mock):
     """Test creating a new conversation when settings are missing."""
     with _patch_store():
-        # Mock the _create_new_conversation function to raise MissingSettingsError
+        # Mock the create_new_conversation function to raise MissingSettingsError
         with patch(
-            'openhands.server.routes.manage_conversations._create_new_conversation'
+            'openhands.server.routes.manage_conversations.create_new_conversation'
         ) as mock_create_conversation:
             # Set up the mock to raise MissingSettingsError
             mock_create_conversation.side_effect = MissingSettingsError(
@@ -358,12 +374,12 @@ async def test_new_conversation_missing_settings(provider_handler_mock):
 
 
 @pytest.mark.asyncio
-async def test_new_conversation_invalid_api_key(provider_handler_mock):
+async def test_new_conversation_invalid_session_api_key(provider_handler_mock):
     """Test creating a new conversation with an invalid API key."""
     with _patch_store():
-        # Mock the _create_new_conversation function to raise LLMAuthenticationError
+        # Mock the create_new_conversation function to raise LLMAuthenticationError
         with patch(
-            'openhands.server.routes.manage_conversations._create_new_conversation'
+            'openhands.server.routes.manage_conversations.create_new_conversation'
         ) as mock_create_conversation:
             # Set up the mock to raise LLMAuthenticationError
             mock_create_conversation.side_effect = LLMAuthenticationError(
@@ -452,12 +468,16 @@ async def test_delete_conversation():
 async def test_new_conversation_with_bearer_auth(provider_handler_mock):
     """Test creating a new conversation with bearer authentication."""
     with _patch_store():
-        # Mock the _create_new_conversation function
+        # Mock the create_new_conversation function
         with patch(
-            'openhands.server.routes.manage_conversations._create_new_conversation'
+            'openhands.server.routes.manage_conversations.create_new_conversation'
         ) as mock_create_conversation:
             # Set up the mock to return a conversation ID
-            mock_create_conversation.return_value = 'test_conversation_id'
+            mock_create_conversation.return_value = MagicMock(
+                conversation_id='test_conversation_id',
+                url='https://my-conversation.com',
+                session_api_key=None,
+            )
 
             # Create the request object
             test_request = InitSessionRequest(
@@ -470,10 +490,10 @@ async def test_new_conversation_with_bearer_auth(provider_handler_mock):
             response = await create_new_test_conversation(test_request, AuthType.BEARER)
 
             # Verify the response
-            assert isinstance(response, JSONResponse)
-            assert response.status_code == 200
+            assert isinstance(response, InitSessionResponse)
+            assert response.status == 'ok'
 
-            # Verify that _create_new_conversation was called with REMOTE_API_KEY trigger
+            # Verify that create_new_conversation was called with REMOTE_API_KEY trigger
             mock_create_conversation.assert_called_once()
             call_args = mock_create_conversation.call_args[1]
             assert (
@@ -485,12 +505,16 @@ async def test_new_conversation_with_bearer_auth(provider_handler_mock):
 async def test_new_conversation_with_null_repository():
     """Test creating a new conversation with null repository."""
     with _patch_store():
-        # Mock the _create_new_conversation function
+        # Mock the create_new_conversation function
         with patch(
-            'openhands.server.routes.manage_conversations._create_new_conversation'
+            'openhands.server.routes.manage_conversations.create_new_conversation'
         ) as mock_create_conversation:
             # Set up the mock to return a conversation ID
-            mock_create_conversation.return_value = 'test_conversation_id'
+            mock_create_conversation.return_value = MagicMock(
+                conversation_id='test_conversation_id',
+                url='https://my-conversation.com',
+                session_api_key=None,
+            )
 
             # Create the request object with null repository
             test_request = InitSessionRequest(
@@ -503,10 +527,10 @@ async def test_new_conversation_with_null_repository():
             response = await create_new_test_conversation(test_request)
 
             # Verify the response
-            assert isinstance(response, JSONResponse)
-            assert response.status_code == 200
+            assert isinstance(response, InitSessionResponse)
+            assert response.status == 'ok'
 
-            # Verify that _create_new_conversation was called with None repository
+            # Verify that create_new_conversation was called with None repository
             mock_create_conversation.assert_called_once()
             call_args = mock_create_conversation.call_args[1]
             assert call_args['selected_repository'] is None
@@ -522,9 +546,9 @@ async def test_new_conversation_with_provider_authentication_error(
 
     """Test creating a new conversation when provider authentication fails."""
     with _patch_store():
-        # Mock the _create_new_conversation function
+        # Mock the create_new_conversation function
         with patch(
-            'openhands.server.routes.manage_conversations._create_new_conversation'
+            'openhands.server.routes.manage_conversations.create_new_conversation'
         ) as mock_create_conversation:
             # Set up the mock to return a conversation ID
             mock_create_conversation.return_value = 'test_conversation_id'
@@ -553,7 +577,7 @@ async def test_new_conversation_with_provider_authentication_error(
                 'test/repo', None
             )
 
-            # Verify that _create_new_conversation was not called
+            # Verify that create_new_conversation was not called
             mock_create_conversation.assert_not_called()
 
 

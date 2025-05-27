@@ -24,18 +24,39 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
-          label: 'Openhands Cloud',
+          label: 'Getting Started',
           id: 'usage/cloud/openhands-cloud',
+        },
+        {
+          type: 'category',
+          label: 'Installation',
+          items: [
+            {
+              type: 'doc',
+              label: 'GitHub Installation',
+              id: 'usage/cloud/github-installation',
+            },
+            {
+              type: 'doc',
+              label: 'GitLab Installation',
+              id: 'usage/cloud/gitlab-installation',
+            },
+          ],
+        },
+        {
+          type: 'doc',
+          label: 'Cloud UI',
+          id: 'usage/cloud/cloud-ui',
+        },
+        {
+          type: 'doc',
+          label: 'Cloud Issue Resolver',
+          id: 'usage/cloud/cloud-issue-resolver',
         },
         {
           type: 'doc',
           label: 'Cloud API',
           id: 'usage/cloud/cloud-api',
-        },
-        {
-          type: 'doc',
-          label: 'Cloud GitHub Resolver',
-          id: 'usage/cloud/cloud-github-resolver',
         },
       ],
     },
@@ -70,13 +91,18 @@ const sidebars: SidebarsConfig = {
             },
             {
               type: 'doc',
-              label: 'General Repository Microagents',
+              label: 'General Microagents',
               id: 'usage/prompting/microagents-repo',
             },
             {
               type: 'doc',
               label: 'Keyword-Triggered Microagents',
               id: 'usage/prompting/microagents-keyword',
+            },
+            {
+              type: 'doc',
+              label: 'Organization and User Microagents',
+              id: 'usage/prompting/microagents-org',
             },
             {
               type: 'doc',
@@ -266,6 +292,11 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           label: 'Evaluation',
           id: 'usage/how-to/evaluation-harness',
+        },
+        {
+          type: 'doc',
+          label: 'WebSocket Connection',
+          id: 'usage/how-to/websocket-connection',
         },
       ],
     },
