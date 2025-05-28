@@ -8767,6 +8767,22 @@
         "de": "Profi-Tipp",
         "uk": "Порада професіонала"
     },
+    "AZURE_DEVOPS$TOKEN_LABEL": {
+        "en": "Azure DevOps Personal Access Token",
+        "pt": "Token de Acesso Pessoal do Azure DevOps"
+    },
+    "AZURE_DEVOPS$HOST_LABEL": {
+        "en": "Azure DevOps Host (e.g., dev.azure.com/organization/project)",
+        "pt": "Host do Azure DevOps (ex: dev.azure.com/organização/projeto)"
+    },
+    "AZURE_DEVOPS$TOKEN_HELP_TEXT": {
+        "en": "To use Azure DevOps repositories, you need to provide a Personal Access Token (PAT) with the appropriate permissions and the Azure DevOps host URL in the format 'dev.azure.com/organization/project'.",
+        "pt": "Para usar repositórios do Azure DevOps, você precisa fornecer um Token de Acesso Pessoal (PAT) com as permissões apropriadas e o URL do host do Azure DevOps no formato 'dev.azure.com/organização/projeto'."
+    },
+    "AZURE_DEVOPS$TOKEN_HELP_LINK": {
+        "en": "Learn how to create an Azure DevOps personal access token",
+        "pt": "Saiba como criar um token de acesso pessoal do Azure DevOps"
+    },
     "FEEDBACK$SUBMITTING_LABEL": {
         "en": "Submitting...",
         "ja": "送信中...",
@@ -8780,7 +8796,7 @@
         "ar": "إرسال...",
         "fr": "Envoi...",
         "tr": "Gönderiliyor...",
-        "de": "Senden...",  
+        "de": "Senden...",
         "uk": "Відправляємо..."
     },
     "FEEDBACK$SUBMITTING_MESSAGE": {
