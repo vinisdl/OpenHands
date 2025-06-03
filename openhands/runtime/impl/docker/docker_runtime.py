@@ -344,18 +344,25 @@ class DockerRuntime(ActionExecutionClient):
         command = self.get_action_execution_server_startup_command()
 
         try:
+            # Gera o hostname desejado, por exemplo:
+            host = f"{self.container_name}.tars.dbserver.com.br"
+
+            # Gera as labels Traefik
+            labels = generate_traefik_labels(self.container_name, host, self._container_port)
+
+            # Passa as labels na criação do container
             self.container = self.docker_client.containers.run(
                 self.runtime_container_image,
                 command=command,
-                # Override the default 'bash' entrypoint because the command is a binary.
                 entrypoint=[],
                 network_mode=network_mode,
                 ports=port_mapping,
-                working_dir='/openhands/code/',  # do not change this!
+                working_dir='/openhands/code/',
                 name=self.container_name,
                 detach=True,
                 environment=environment,
                 volumes=volumes,
+                labels=labels,
                 device_requests=(
                     [docker.types.DeviceRequest(capabilities=[['gpu']], count=-1)]
                     if self.config.sandbox.enable_gpu
@@ -426,6 +433,18 @@ class DockerRuntime(ActionExecutionClient):
         reraise=True,
         wait=tenacity.wait_fixed(2),
     )
+
+    def generate_traefik_labels(container_name: str, host: str, port: int = 3000) -> dict[str, str]:
+        return {
+            "traefik.enable": "true",
+            f"traefik.http.routers.{container_name}.rule": f"Host(`{host}`)",
+            f"traefik.http.routers.{container_name}.entrypoints": "websecure",
+            f"traefik.http.routers.{container_name}.tls": "true",
+            f"traefik.http.routers.{container_name}.tls.certresolver": "tlsresolver",
+            f"traefik.http.services.{container_name}.loadbalancer.server.port": str(port),
+            f"traefik.http.routers.{container_name}.middlewares": "oauth2-proxy@docker",
+        }
+
     def wait_until_alive(self):
         try:
             container = self.docker_client.containers.get(self.container_name)
@@ -483,17 +502,15 @@ class DockerRuntime(ActionExecutionClient):
         if not token:
             return None
 
-        vscode_url = f'http://localhost:{self._vscode_port}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}'
-        return vscode_url
+        host = f"{self.container_name}.tars.dbserver.com.br"
+        return f"https://{host}:{self._vscode_port}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}"
 
     @property
-    def web_hosts(self):
+    def web_hosts(self) -> dict[str, int]:
         hosts: dict[str, int] = {}
-
-        host_addr = os.environ.get('DOCKER_HOST_ADDR', 'localhost')
+        host = f"{self.container_name}.tars.dbserver.com.br"
         for port in self._app_ports:
-            hosts[f'http://{host_addr}:{port}'] = port
-
+            hosts[f"https://{host}:{port}"] = port
         return hosts
 
     def pause(self):
