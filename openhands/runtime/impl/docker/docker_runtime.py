@@ -348,7 +348,7 @@ class DockerRuntime(ActionExecutionClient):
             host = f"{self.container_name}.tars.dbserver.com.br"
 
             # Gera as labels Traefik
-            labels = generate_traefik_labels(self.container_name, host, self._container_port)
+            labels = self.generate_traefik_labels(self.container_name, host)
 
             # Passa as labels na criação do container
             self.container = self.docker_client.containers.run(
@@ -434,16 +434,44 @@ class DockerRuntime(ActionExecutionClient):
         wait=tenacity.wait_fixed(2),
     )
 
-    def generate_traefik_labels(container_name: str, host: str, port: int = 3000) -> dict[str, str]:
-        return {
+    def generate_traefik_labels(self, container_name: str, host: str) -> dict[str, str]:
+
+        # self._host_port = -1
+        # self._container_port = -1
+        # self._vscode_port = -1
+        # self._app_ports: list[int] = []
+
+
+        labels = {
             "traefik.enable": "true",
-            f"traefik.http.routers.{container_name}.rule": f"Host(`{host}`)",
-            f"traefik.http.routers.{container_name}.entrypoints": "websecure",
-            f"traefik.http.routers.{container_name}.tls": "true",
-            f"traefik.http.routers.{container_name}.tls.certresolver": "tlsresolver",
-            f"traefik.http.services.{container_name}.loadbalancer.server.port": str(port),
-            f"traefik.http.routers.{container_name}.middlewares": "oauth2-proxy@docker",
+            f"traefik.http.routers.{container_name}-vs.rule": f"Host(`{self._vscode_port}{host}`)",
+            f"traefik.http.routers.{container_name}-vs.entrypoints": "websecure",
+            f"traefik.http.routers.{container_name}-vs.tls": "true",
+            f"traefik.http.routers.{container_name}-vs.tls.certresolver": "tlsresolver",
+            f"traefik.http.services.{container_name}-vs.loadbalancer.server.port": str(self._vscode_port),
+            f"traefik.http.routers.{container_name}-container_port.rule": f"Host(`{self._container_port}{host}`)",
+            f"traefik.http.routers.{container_name}-container_port.entrypoints": "websecure",
+            f"traefik.http.routers.{container_name}-container_port.tls": "true",
+            f"traefik.http.routers.{container_name}-container_port.tls.certresolver": "tlsresolver",
+            f"traefik.http.services.{container_name}-container_port.loadbalancer.server.port": str(self._container_port),
+            f"traefik.http.routers.{container_name}-host_port.rule": f"Host(`{self._host_port}{host}`)",
+            f"traefik.http.routers.{container_name}-host_port.entrypoints": "websecure",
+            f"traefik.http.routers.{container_name}-host_port.tls": "true",
+            f"traefik.http.routers.{container_name}-host_port.tls.certresolver": "tlsresolver",
+            f"traefik.http.services.{container_name}-host_port.loadbalancer.server.port": str(self._host_port),
         }
+
+        for port in self._app_ports:
+            suffix = f"{container_name}-{port}"
+            labels.update({
+                f"traefik.http.routers.{suffix}.rule": f"Host(`{port}{host}`)",
+                f"traefik.http.routers.{suffix}.entrypoints": "websecure",
+                f"traefik.http.routers.{suffix}.tls": "true",
+                f"traefik.http.routers.{suffix}.tls.certresolver": "tlsresolver",
+                f"traefik.http.services.{suffix}.loadbalancer.server.port": str(port),
+            })
+
+        return labels
 
     def wait_until_alive(self):
         try:
@@ -503,7 +531,7 @@ class DockerRuntime(ActionExecutionClient):
             return None
 
         host = f"{self.container_name}.tars.dbserver.com.br"
-        return f"https://{host}:{self._vscode_port}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}"
+        return f"https://{host}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}"
 
     @property
     def web_hosts(self) -> dict[str, int]:
@@ -511,6 +539,7 @@ class DockerRuntime(ActionExecutionClient):
         host = f"{self.container_name}.tars.dbserver.com.br"
         for port in self._app_ports:
             hosts[f"https://{host}:{port}"] = port
+
         return hosts
 
     def pause(self):
