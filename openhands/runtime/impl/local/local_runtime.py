@@ -178,7 +178,7 @@ class LocalRuntime(ActionExecutionClient):
         self._vscode_port = -1
         self._app_ports: list[int] = []
 
-        self.api_url = f'{self.config.sandbox.local_runtime_url}:{self._host_port}'
+        self.api_url = get_runtime_dns_url(self.config.container_name, self._host_port)
         self.status_callback = status_callback
         self.server_process: subprocess.Popen[str] | None = None
         self.action_semaphore = threading.Semaphore(1)  # Ensure one action at a time
