@@ -363,6 +363,7 @@ class Runtime(FileEditRuntimeMixin):
         provider_domains = {
             ProviderType.GITHUB: 'github.com',
             ProviderType.GITLAB: 'gitlab.com',
+            ProviderType.AZURE_DEVOPS: 'dev.azure.com',
         }
 
         domain = provider_domains[provider]
@@ -370,11 +371,19 @@ class Runtime(FileEditRuntimeMixin):
         # Try to use token if available, otherwise use public URL
         if git_provider_tokens and provider in git_provider_tokens:
             git_token = git_provider_tokens[provider].token
+            git_provider_tokens = git_provider_tokens[provider]
             if git_token:
                 if provider == ProviderType.GITLAB:
                     remote_repo_url = f'https://oauth2:{git_token.get_secret_value()}@{domain}/{selected_repository}.git'
+                elif provider == ProviderType.AZURE_DEVOPS:
+                    parts = selected_repository.strip("/").split("/")
+                    if len(parts) != 3:
+                        raise ValueError("Azure devops: selected_repository deve ter 3 partes: org/project/repo")
+                    organization, project, repository = parts
+                    remote_repo_url = f"https://{git_token.get_secret_value()}@{domain}/{organization}/{project}/_git/{repository}"
+                    print(f"remote_repo_url: {remote_repo_url}")
                 else:
-                    remote_repo_url = f'https://{git_token.get_secret_value()}@{domain}/{selected_repository}.git'
+                    remote_repo_url = f'https://{git_token.get_secret_value()}@{domain}/{selected_repository}'
             else:
                 remote_repo_url = f'https://{domain}/{selected_repository}.git'
         else:

@@ -105,7 +105,7 @@ class DockerRuntime(ActionExecutionClient):
             )
 
         self.docker_client: docker.DockerClient = self._init_docker_client()
-        self.api_url = f'{self.config.sandbox.local_runtime_url}:{self._container_port}'
+        self.api_url = get_runtime_dns_url(self.config.container_name, self._container_port)
 
         self.base_container_image = self.config.sandbox.base_container_image
         self.runtime_container_image = self.config.sandbox.runtime_container_image
@@ -344,18 +344,25 @@ class DockerRuntime(ActionExecutionClient):
         command = self.get_action_execution_server_startup_command()
 
         try:
+            # Gera o hostname desejado, por exemplo:
+            host = f"{self.container_name}.tars.dbserver.com.br"
+
+            # Gera as labels Traefik
+            labels = self.generate_traefik_labels(self.container_name, host)
+
+            # Passa as labels na criação do container
             self.container = self.docker_client.containers.run(
                 self.runtime_container_image,
                 command=command,
-                # Override the default 'bash' entrypoint because the command is a binary.
                 entrypoint=[],
                 network_mode=network_mode,
                 ports=port_mapping,
-                working_dir='/openhands/code/',  # do not change this!
+                working_dir='/openhands/code/',
                 name=self.container_name,
                 detach=True,
                 environment=environment,
                 volumes=volumes,
+                labels=labels,
                 device_requests=(
                     [docker.types.DeviceRequest(capabilities=[['gpu']], count=-1)]
                     if self.config.sandbox.enable_gpu
@@ -426,6 +433,46 @@ class DockerRuntime(ActionExecutionClient):
         reraise=True,
         wait=tenacity.wait_fixed(2),
     )
+
+    def generate_traefik_labels(self, container_name: str, host: str) -> dict[str, str]:
+
+        # self._host_port = -1
+        # self._container_port = -1
+        # self._vscode_port = -1
+        # self._app_ports: list[int] = []
+
+
+        labels = {
+            "traefik.enable": "true",
+            f"traefik.http.routers.{container_name}-vs.rule": f"Host(`{self._vscode_port}{host}`)",
+            f"traefik.http.routers.{container_name}-vs.entrypoints": "websecure",
+            f"traefik.http.routers.{container_name}-vs.tls": "true",
+            f"traefik.http.routers.{container_name}-vs.tls.certresolver": "tlsresolver",
+            f"traefik.http.services.{container_name}-vs.loadbalancer.server.port": str(self._vscode_port),
+            f"traefik.http.routers.{container_name}-container_port.rule": f"Host(`{self._container_port}{host}`)",
+            f"traefik.http.routers.{container_name}-container_port.entrypoints": "websecure",
+            f"traefik.http.routers.{container_name}-container_port.tls": "true",
+            f"traefik.http.routers.{container_name}-container_port.tls.certresolver": "tlsresolver",
+            f"traefik.http.services.{container_name}-container_port.loadbalancer.server.port": str(self._container_port),
+            f"traefik.http.routers.{container_name}-host_port.rule": f"Host(`{self._host_port}{host}`)",
+            f"traefik.http.routers.{container_name}-host_port.entrypoints": "websecure",
+            f"traefik.http.routers.{container_name}-host_port.tls": "true",
+            f"traefik.http.routers.{container_name}-host_port.tls.certresolver": "tlsresolver",
+            f"traefik.http.services.{container_name}-host_port.loadbalancer.server.port": str(self._host_port),
+        }
+
+        for port in self._app_ports:
+            suffix = f"{container_name}-{port}"
+            labels.update({
+                f"traefik.http.routers.{suffix}.rule": f"Host(`{port}{host}`)",
+                f"traefik.http.routers.{suffix}.entrypoints": "websecure",
+                f"traefik.http.routers.{suffix}.tls": "true",
+                f"traefik.http.routers.{suffix}.tls.certresolver": "tlsresolver",
+                f"traefik.http.services.{suffix}.loadbalancer.server.port": str(port),
+            })
+
+        return labels
+
     def wait_until_alive(self):
         try:
             container = self.docker_client.containers.get(self.container_name)
@@ -483,16 +530,15 @@ class DockerRuntime(ActionExecutionClient):
         if not token:
             return None
 
-        vscode_url = f'http://localhost:{self._vscode_port}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}'
-        return vscode_url
+        host = f"{self.container_name}.tars.dbserver.com.br"
+        return f"https://{host}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}"
 
     @property
-    def web_hosts(self):
+    def web_hosts(self) -> dict[str, int]:
         hosts: dict[str, int] = {}
-
-        host_addr = os.environ.get('DOCKER_HOST_ADDR', 'localhost')
+        host = f"{self.container_name}.tars.dbserver.com.br"
         for port in self._app_ports:
-            hosts[f'http://{host_addr}:{port}'] = port
+            hosts[f"https://{host}:{port}"] = port
 
         return hosts
 

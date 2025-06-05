@@ -339,7 +339,7 @@ class DockerNestedConversationManager(ConversationManager):
         env = container.attrs['Config']['Env']
         container_port = int(next(e[5:] for e in env if e.startswith('port=')))
         conversation_id = container.name[len('openhands-runtime-') :]
-        nested_url = f'{self.config.sandbox.local_runtime_url}:{container_port}/api/conversations/{conversation_id}'
+        nested_url = f'{get_runtime_dns_url(self.config.container_name, container_port)}/api/conversations/{conversation_id}'
         return nested_url
 
     def _get_session_api_key_for_conversation(self, conversation_id: str):
