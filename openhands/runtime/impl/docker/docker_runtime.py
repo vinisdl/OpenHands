@@ -348,7 +348,7 @@ class DockerRuntime(ActionExecutionClient):
             host = f"{self.container_name}.tars.dbserver.com.br"
 
             # Gera as labels Traefik
-            labels = generate_traefik_labels(self.container_name, host, self._container_port)
+            labels = self.generate_traefik_labels(self.container_name, host, self._container_port)
 
             # Passa as labels na criação do container
             self.container = self.docker_client.containers.run(
@@ -427,14 +427,7 @@ class DockerRuntime(ActionExecutionClient):
             f'attached to container: {self.container_name} {self._container_port} {self.api_url}',
         )
 
-    @tenacity.retry(
-        stop=tenacity.stop_after_delay(120) | stop_if_should_exit(),
-        retry=tenacity.retry_if_exception(_is_retryablewait_until_alive_error),
-        reraise=True,
-        wait=tenacity.wait_fixed(2),
-    )
-
-    def generate_traefik_labels(container_name: str, host: str, port: int = 3000) -> dict[str, str]:
+    def generate_traefik_labels(self, container_name: str, host: str, port: int = 3000) -> dict[str, str]:
         return {
             "traefik.enable": "true",
             f"traefik.http.routers.{container_name}.rule": f"Host(`{host}`)",
@@ -445,6 +438,12 @@ class DockerRuntime(ActionExecutionClient):
             f"traefik.http.routers.{container_name}.middlewares": "oauth2-proxy@docker",
         }
 
+    @tenacity.retry(
+        stop=tenacity.stop_after_delay(120) | stop_if_should_exit(),
+        retry=tenacity.retry_if_exception(_is_retryablewait_until_alive_error),
+        reraise=True,
+        wait=tenacity.wait_fixed(2),
+    )
     def wait_until_alive(self):
         try:
             container = self.docker_client.containers.get(self.container_name)
