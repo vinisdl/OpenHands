@@ -8775,7 +8775,7 @@
         "zh-TW": "Azure DevOps個人訪問令牌",
         "ko-KR": "Azure DevOps 개인 액세스 토큰",
         "no": "Azure DevOps personlig tilgangstoken",
-        "it": "Token di accesso personale di Azure DevOps",    
+        "it": "Token di accesso personale di Azure DevOps",
         "es": "Token de acceso personal de Azure DevOps",
         "ar": "رمز الوصول الشخصي لـ Azure DevOps",
         "fr": "Jeton d'accès personnel Azure DevOps",
@@ -8818,7 +8818,6 @@
     },
     "AZURE_DEVOPS$TOKEN_HELP_LINK": {
         "en": "Learn how to create an Azure DevOps personal access token",
-<<<<<<< HEAD
         "pt": "Saiba como criar um token de acesso pessoal do Azure DevOps",
         "ja": "Azure DevOpsの個人用アクセストークンの作成方法を学ぶ",
         "zh-CN": "了解如何创建Azure DevOps个人访问令牌",
@@ -8831,9 +8830,7 @@
         "fr": "Découvrez comment créer un jeton d'accès personnel Azure DevOps",
         "tr": "Azure DevOps kişisel erişim jetonu nasıl oluşturulur öğrenin",
         "de": "Erfahren Sie, wie Sie ein Azure DevOps-Personen-Zugriffstoken erstellen",
-        "uk": "Дізнайтеся, як створити токен особистого доступу Azure DevOps"        
-=======
-        "pt": "Saiba como criar um token de acesso pessoal do Azure DevOps"
+        "uk": "Дізнайтеся, як створити токен особистого доступу Azure DevOps"
     },
     "FEEDBACK$SUBMITTING_LABEL": {
         "en": "Submitting...",
@@ -8866,6 +8863,5 @@
         "tr": "Geri bildirim gönderiliyor, lütfen bekleyin...",
         "de": "Feedback senden, bitte warten...",
         "uk": "Відправляємо відгук, будь ласка, почекайте..."
->>>>>>> 781f8d0d4be1e61065c233dce60874d74c948916
     }
 }
