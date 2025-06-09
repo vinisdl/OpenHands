@@ -435,12 +435,14 @@ class DockerRuntime(ActionExecutionClient):
             f"traefik.http.routers.{container_name}-vscode.entrypoints": "websecure",
             f"traefik.http.routers.{container_name}-vscode.tls": "true",
             f"traefik.http.routers.{container_name}-vscode.tls.certresolver": "tlsresolver",
+            f"traefik.http.routers.{container_name}-vscode.service": f"{container_name}-vscode",
             f"traefik.http.services.{container_name}-vscode.loadbalancer.server.port": str(self._vscode_port),
             # Para o container principal
             f"traefik.http.routers.{container_name}.rule": f"Host(`{container_name}.tars.dbserver.com.br`)",
             f"traefik.http.routers.{container_name}.entrypoints": "websecure",
             f"traefik.http.routers.{container_name}.tls": "true",
             f"traefik.http.routers.{container_name}.tls.certresolver": "tlsresolver",
+            f"traefik.http.routers.{container_name}.service": f"{container_name}",
             f"traefik.http.services.{container_name}.loadbalancer.server.port": str(self._container_port),
         }
 
@@ -452,6 +454,7 @@ class DockerRuntime(ActionExecutionClient):
                 f"traefik.http.routers.{suffix}.entrypoints": "websecure",
                 f"traefik.http.routers.{suffix}.tls": "true",
                 f"traefik.http.routers.{suffix}.tls.certresolver": "tlsresolver",
+                f"traefik.http.routers.{suffix}.service": f"{suffix}",
                 f"traefik.http.services.{suffix}.loadbalancer.server.port": str(port),
             })
 
