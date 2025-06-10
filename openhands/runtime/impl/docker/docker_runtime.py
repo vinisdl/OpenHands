@@ -350,12 +350,37 @@ class DockerRuntime(ActionExecutionClient):
             # Gera as labels Traefik
             labels = self.generate_traefik_labels(self.container_name, host)
 
+            # Log das configurações para debug
+            self.log('debug', f'Porta VSCode: {self._vscode_port}')
+            self.log('debug', f'Porta Container: {self._container_port}')
+            self.log('debug', f'Portas App: {self._app_ports}')
+            self.log('debug', f'Labels Traefik: {len(labels)} configurações')
+
+            # Configurações de rede para garantir conectividade com Traefik
+            network_config = None
+            if not use_host_network:
+                # Verifica se a rede do Traefik existe e conecta o container a ela
+                traefik_networks = ['azure-db_default', 'traefik', 'openhands-default']
+                for network_name in traefik_networks:
+                    try:
+                        traefik_network = self.docker_client.networks.get(network_name)
+                        network_config = traefik_network.name
+                        self.log('debug', f'Conectando container à rede Traefik: {traefik_network.name}')
+                        break
+                    except docker.errors.NotFound:
+                        continue
+
+                if network_config is None:
+                    self.log('debug', 'Nenhuma rede Traefik encontrada, usando rede padrão')
+                    network_config = None
+
             # Passa as labels na criação do container
             self.container = self.docker_client.containers.run(
                 self.runtime_container_image,
                 command=command,
                 entrypoint=[],
                 network_mode=network_mode,
+                network=network_config if not use_host_network and network_config else None,
                 ports=port_mapping,
                 working_dir='/openhands/code/',
                 name=self.container_name,
@@ -430,32 +455,44 @@ class DockerRuntime(ActionExecutionClient):
     def generate_traefik_labels(self, container_name: str, host: str) -> dict[str, str]:
         labels = {
             "traefik.enable": "true",
-            # Para o VSCode
-            f"traefik.http.routers.{container_name}-vscode.rule": f"Host(`vscode-{container_name}.tars.dbserver.com.br`)",
+
+            base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+
+
+            # Router e Service para o VSCode
+            f"traefik.http.routers.{container_name}-vscode.rule": f"Host(`vscode-{container_name}.{base_domain}`)",
             f"traefik.http.routers.{container_name}-vscode.entrypoints": "websecure",
             f"traefik.http.routers.{container_name}-vscode.tls": "true",
             f"traefik.http.routers.{container_name}-vscode.tls.certresolver": "tlsresolver",
             f"traefik.http.routers.{container_name}-vscode.service": f"{container_name}-vscode",
+
+            # Configurações do serviço VSCode
             f"traefik.http.services.{container_name}-vscode.loadbalancer.server.port": str(self._vscode_port),
-            # Para o container principal
-            f"traefik.http.routers.{container_name}.rule": f"Host(`{container_name}.tars.dbserver.com.br`)",
+            f"traefik.http.services.{container_name}-vscode.loadbalancer.server.scheme": "http",
+            f"traefik.http.services.{container_name}-vscode.loadbalancer.passHostHeader": "true",
+            f"traefik.http.services.{container_name}-vscode.loadbalancer.responseForwarding.flushInterval": "1ms",
+
+            # Router e Service para o container principal
+            f"traefik.http.routers.{container_name}.rule": f"Host(`{container_name}.{base_domain}`)",
             f"traefik.http.routers.{container_name}.entrypoints": "websecure",
             f"traefik.http.routers.{container_name}.tls": "true",
             f"traefik.http.routers.{container_name}.tls.certresolver": "tlsresolver",
             f"traefik.http.routers.{container_name}.service": f"{container_name}",
             f"traefik.http.services.{container_name}.loadbalancer.server.port": str(self._container_port),
+            f"traefik.http.services.{container_name}.loadbalancer.server.scheme": "http",
         }
 
         # Para as portas da aplicação
         for i, port in enumerate(self._app_ports):
             suffix = f"{container_name}-app{i+1}"
             labels.update({
-                f"traefik.http.routers.{suffix}.rule": f"Host(`app{i+1}-{container_name}.tars.dbserver.com.br`)",
+                f"traefik.http.routers.{suffix}.rule": f"Host(`app{i+1}-{container_name}.{base_domain}`)",
                 f"traefik.http.routers.{suffix}.entrypoints": "websecure",
                 f"traefik.http.routers.{suffix}.tls": "true",
                 f"traefik.http.routers.{suffix}.tls.certresolver": "tlsresolver",
                 f"traefik.http.routers.{suffix}.service": f"{suffix}",
                 f"traefik.http.services.{suffix}.loadbalancer.server.port": str(port),
+                f"traefik.http.services.{suffix}.loadbalancer.server.scheme": "http",
             })
 
         return labels
@@ -523,14 +560,27 @@ class DockerRuntime(ActionExecutionClient):
         if not token:
             return None
 
-        vscode_host = f"vscode-{self.container_name}.tars.dbserver.com.br"
+        # Verifica se o container está rodando antes de retornar a URL
+        if self.container:
+            try:
+                self.container.reload()
+                if self.container.status != 'running':
+                    self.log('warning', f'Container {self.container_name} não está rodando (status: {self.container.status})')
+                    return None
+            except Exception as e:
+                self.log('error', f'Erro ao verificar status do container: {e}')
+                return None
+
+        base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+        vscode_host = f"vscode-{self.container_name}.{base_domain}"
         return f"https://{vscode_host}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}"
 
     @property
     def web_hosts(self) -> dict[str, int]:
         hosts: dict[str, int] = {}
         for i, port in enumerate(self._app_ports):
-            app_host = f"app{i+1}-{self.container_name}.tars.dbserver.com.br"
+            base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+            app_host = f"app{i+1}-{self.container_name}.{base_domain}"
             hosts[f"https://{app_host}"] = port
         return hosts
 

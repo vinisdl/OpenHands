@@ -129,7 +129,7 @@ async def search_events(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid limit'
         )
-    
+
     # Get matching events from the stream
     event_stream = request.state.conversation.event_stream
     events = list(event_stream.search_events(
@@ -153,7 +153,7 @@ async def search_events(
 
 
 @app.post('/events')
-async def add_event(request: Request):
-    data = request.json()
+async def add_event(request: Request) -> JSONResponse:
+    data = await request.json()
     conversation_manager.send_to_event_stream(request.state.sid, data)
     return JSONResponse({"success": True})
