@@ -144,8 +144,7 @@ export function FeedbackForm({ onClose, polarity }: FeedbackFormProps) {
       </div>
       {isPending && (
         <p className="text-sm text-center text-neutral-400">
-          {t(I18nKey.FEEDBACK$SUBMITTING_MESSAGE) ||
-            "Submitting your feedback, please wait..."}
+          {t(I18nKey.FEEDBACK$SUBMITTING_MESSAGE) }
         </p>
       )}
     </form>
