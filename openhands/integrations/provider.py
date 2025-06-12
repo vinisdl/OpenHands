@@ -14,6 +14,9 @@ from openhands.core.logger import openhands_logger as logger
 from openhands.events.action.action import Action
 from openhands.events.action.commands import CmdRunAction
 from openhands.events.stream import EventStream
+from openhands.integrations.azuredevops.azuredevops_service import (
+    AzureDevOpsServiceImpl,
+)
 from openhands.integrations.github.github_service import GithubServiceImpl
 from openhands.integrations.gitlab.gitlab_service import GitLabServiceImpl
 from openhands.integrations.service_types import (
@@ -51,7 +54,11 @@ class ProviderToken(BaseModel):
                 token_str = ''
             user_id = token_value.get('user_id')
             host = token_value.get('host')
-            return cls(token=SecretStr(token_str), user_id=user_id, host=host)
+            return cls(
+                token=SecretStr(token_str),
+                user_id=user_id,
+                host=host,
+            )
 
         else:
             raise ValueError('Unsupported Provider token type')
@@ -108,6 +115,7 @@ class ProviderHandler:
         self.service_class_map: dict[ProviderType, type[GitService]] = {
             ProviderType.GITHUB: GithubServiceImpl,
             ProviderType.GITLAB: GitLabServiceImpl,
+            ProviderType.AZURE_DEVOPS: AzureDevOpsServiceImpl,
         }
 
         self.external_auth_id = external_auth_id
@@ -124,7 +132,9 @@ class ProviderHandler:
         """Helper method to instantiate a service for a given provider"""
         token = self.provider_tokens[provider]
         service_class = self.service_class_map[provider]
-        return service_class(
+
+        # Create service with common parameters
+        service = service_class(
             user_id=token.user_id,
             external_auth_id=self.external_auth_id,
             external_auth_token=self.external_auth_token,
@@ -132,6 +142,12 @@ class ProviderHandler:
             external_token_manager=self.external_token_manager,
             base_domain=token.host,
         )
+        
+        # Set base domain for token validation
+        if token.host and hasattr(service, 'base_domain'):
+            service.base_domain = token.host
+            
+        return service
 
     async def get_user(self) -> User:
         """Get user information from the first available provider"""
