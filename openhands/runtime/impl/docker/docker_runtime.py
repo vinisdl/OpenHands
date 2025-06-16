@@ -453,12 +453,9 @@ class DockerRuntime(ActionExecutionClient):
         )
 
     def generate_traefik_labels(self, container_name: str, host: str) -> dict[str, str]:
+        base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
         labels = {
             "traefik.enable": "true",
-
-            base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
-
-
             # Router e Service para o VSCode
             f"traefik.http.routers.{container_name}-vscode.rule": f"Host(`vscode-{container_name}.{base_domain}`)",
             f"traefik.http.routers.{container_name}-vscode.entrypoints": "websecure",
