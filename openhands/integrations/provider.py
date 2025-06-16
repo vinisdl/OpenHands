@@ -139,7 +139,8 @@ class ProviderHandler:
             external_auth_id=self.external_auth_id,
             external_auth_token=self.external_auth_token,
             token=token.token,
-            external_token_manager=self.external_token_manager
+            external_token_manager=self.external_token_manager,
+            base_domain=token.host,
         )
         
         # Set base domain for token validation

@@ -101,7 +101,7 @@ export function FeedbackForm({ onClose, polarity }: FeedbackFormProps) {
           name="email"
           type="email"
           placeholder={t(I18nKey.FEEDBACK$EMAIL_PLACEHOLDER)}
-          className="bg-[#27272A] px-3 py-[10px] rounded"
+          className="bg-[#27272A] px-3 py-[10px] rounded-sm"
         />
       </label>
 
@@ -144,7 +144,7 @@ export function FeedbackForm({ onClose, polarity }: FeedbackFormProps) {
       </div>
       {isPending && (
         <p className="text-sm text-center text-neutral-400">
-          {t(I18nKey.FEEDBACK$SUBMITTING_MESSAGE) }
+          {t(I18nKey.FEEDBACK$SUBMITTING_MESSAGE)}
         </p>
       )}
     </form>
