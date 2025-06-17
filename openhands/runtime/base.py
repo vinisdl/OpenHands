@@ -432,7 +432,7 @@ class Runtime(FileEditRuntimeMixin):
                     if len(parts) != 3:
                         raise ValueError("Azure devops: selected_repository deve ter 3 partes: org/project/repo")
                     organization, project, repository = parts
-                    remote_repo_url = f"https://{git_token.get_secret_value()}@{domain}/{organization}/{project}/_git/{repository}"
+                    remote_repo_url = f"https://{git_token.get_secret_value()}@dev.azure.com/{organization}/{project}/_git/{repository}"
                     print(f"remote_repo_url: {remote_repo_url}")
                 else:
                     remote_repo_url = f'https://{git_token.get_secret_value()}@{domain}/{selected_repository}'
