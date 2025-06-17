@@ -8,6 +8,7 @@ triggers:
 - azure
 - ado
 - git
+- pr
 ---
 
 You have access to an environment variable, `AZURE_DEVOPS_TOKEN`, which allows you to interact with
