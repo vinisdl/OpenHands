@@ -86,26 +86,10 @@ class AzureDevOpsService(BaseGitService, GitService):
             async with httpx.AsyncClient() as client:
                 headers = await self._get_azuredevops_headers()
 
-                # Make initial request
-                response = await self.execute_request(
-                    client=client,
-                    url=url,
-                    headers=headers,
-                    params=params,
-                    method=method,
-                )
-
-                # Handle token refresh if needed
-                if self.refresh and self._has_token_expired(response.status_code):
-                    await self.get_latest_token()
-                    headers = await self._get_azuredevops_headers()
-                    response = await self.execute_request(
-                        client=client,
-                        url=url,
-                        headers=headers,
-                        params=params,
-                        method=method,
-                    )
+                if method == RequestMethod.POST:
+                    response = await client.post(url, json=params, headers=headers)
+                else:
+                    response = await client.get(url, params=params, headers=headers)
 
                 response.raise_for_status()
                 data = response.json()
@@ -379,24 +363,48 @@ class AzureDevOpsService(BaseGitService, GitService):
         """Create a pull request"""
         try:
             await self.loadOrganization_and_project()
+            print(f"base_domain: {self.base_domain}")
+            print(f"organization: {self.organization}")
+            print(f"project: {self.project}")
+            print(f"repository: {repository}")
+            print(f"source_branch: {source_branch}")
+            print(f"target_branch: {target_branch}")
+            print(f"title: {title}")
+            print(f"body: {body}")
 
-            # Extract organization and project from base_domain or repository path
+            # Extrair o nome do repositório
             parts = repository.split("/")
-            if len(parts) >= 3:
-                repo_name = parts[2]
+            if len(parts) >= 2:
+                repo_name = parts[1]
+            else:
+                raise UnknownException(f"Formato do parâmetro 'repository' inválido: {repository}")
 
-            # Create the PR
-            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}/pullRequests"
+            # Buscar o repository ID pelo nome
+            repo_url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories?api-version=7.1"
+            repo_data, _ = await self._make_request(repo_url)
+            repo_id = None
+            for repo in repo_data.get("value", []):
+                if repo.get("name") == repo_name:
+                    repo_id = repo.get("id")
+                    break
+            if not repo_id:
+                raise UnknownException(f"Repositório {repo_name} não encontrado")
+
+            # Montar o payload conforme o curl
             payload = {
                 "title": title,
-                "description": body,
-                "sourceRefName": source_branch,
-                "targetRefName": target_branch
+                "description": body or "",
+                "sourceRefName": f"refs/heads/{source_branch}",
+                "targetRefName": f"refs/heads/{target_branch}"
             }
+            print(f"Payload enviado para o PR: {payload}")
 
+            # Enviar o POST com o payload como JSON
+            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_id}/pullRequests?api-version=7.1"
             response, _ = await self._make_request(url, payload, RequestMethod.POST)
             return response['url']
         except Exception as e:
+            print(f"Error creating pull request: {e}") 
             logger.warning(f"Error creating pull request: {e}")
             raise UnknownException(f"Error creating pull request: {e}")
 

@@ -79,14 +79,14 @@ async def save_pr_metadata(
 @mcp_server.tool()
 async def create_pr(
     repo_name: Annotated[
-        str, Field(description='GitHub repository ({{owner}}/{{repo}})')
+        str, Field(description='GitHub/Azure DevOps repository ({{owner}}/{{repo}})')
     ],
     source_branch: Annotated[str, Field(description='Source branch on repo')],
     target_branch: Annotated[str, Field(description='Target branch on repo')],
     title: Annotated[str, Field(description='PR Title')],
     body: Annotated[str | None, Field(description='PR body')],
 ) -> str:
-    """Open a PR in GitHub"""
+    """Open a PR in GitHub/Azure DevOps"""
 
     logger.info('Calling OpenHands MCP create_pr')
 
@@ -108,13 +108,16 @@ async def create_pr(
         logger.warning(f'Failed to append convo link: {e}')
 
     try:
+
         response = await provider_handler.create_pr(
-            repo_name=repo_name,
-            source_branch=source_branch,
-            target_branch=target_branch,
-            title=title,
-            body=body,
+            repo_name,
+            source_branch,
+            target_branch,
+            title,
+            body,
         )
+
+        print(f'Response: {response}')
 
         if conversation_id:
             await save_pr_metadata(user_id, conversation_id, response)
