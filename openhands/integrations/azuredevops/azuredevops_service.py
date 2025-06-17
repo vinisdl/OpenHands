@@ -29,7 +29,7 @@ class AzureDevOpsService(BaseGitService, GitService):
     BASE_VSAEX_URL: str = f'https://vsaex.dev.azure.com'
     organization: str = ''
     project: str = ''
-    
+
 
     def __init__(
         self,
@@ -45,8 +45,8 @@ class AzureDevOpsService(BaseGitService, GitService):
 
         if token:
             self.token = token
-        
-    
+
+
         self.loadOrganization_and_project()
         self.external_auth_id = external_auth_id
         self.external_auth_token = external_auth_token
@@ -62,13 +62,13 @@ class AzureDevOpsService(BaseGitService, GitService):
 
 
     async def loadOrganization_and_project(self) -> None:
-        if self.base_domain:            
+        if self.base_domain:
             # If base_domain is provided, it might contain organization info
             parts = self.base_domain.split('/')
             if len(parts) >= 1:
                 self.organization = parts[len(parts) - 2]
             if len(parts) >= 2:
-                self.project = parts[len(parts) - 1]                         
+                self.project = parts[len(parts) - 1]
 
     def _has_token_expired(self, status_code: int) -> bool:
         return status_code == 401
@@ -131,7 +131,7 @@ class AzureDevOpsService(BaseGitService, GitService):
         # Create base64 encoded credentials (username:PAT)
         credentials = base64.b64encode(
             f':{self.token.get_secret_value()}'.encode()
-        ).decode()        
+        ).decode()
 
         return {
             'Authorization': f'Basic {credentials}',
@@ -180,7 +180,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                 company=None,
             )
         except httpx.RequestError as e:
-            print(f"Request error: {str(e)}")            
+            print(f"Request error: {str(e)}")
             raise UnknownException(f'Request error: {str(e)}')
         except Exception as e:
             print(f'Error: {str(e)}')
@@ -190,11 +190,11 @@ class AzureDevOpsService(BaseGitService, GitService):
         """Get repositories for the authenticated user."""
         # Get user profile to extract organization and project
         try:
-            await self.loadOrganization_and_project()            
-            user = await self.get_user()                                                  
+            await self.loadOrganization_and_project()
+            user = await self.get_user()
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories"
             data, _ = await self._make_request(url)
-            
+
             repositories = []
             for repo in data.get("value", []):
                 repo_id = hash(repo.get('id', '')) % (2**31)
@@ -208,7 +208,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                         pushed_at=None,
                     )
                 )
-            
+
             return repositories
         except Exception as e:
             logger.warning(f"Error getting repositories: {e}")
@@ -226,12 +226,12 @@ class AzureDevOpsService(BaseGitService, GitService):
 
             await self.loadOrganization_and_project()
 
-            
+
             # Azure DevOps doesn't have a dedicated search API like GitHub
             # We'll get all repos and filter them by name
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories"
             data, _ = await self._make_request(url)
-            
+
             repositories = []
             for repo in data.get("value", []):
                 if query.lower() in repo.get("name", "").lower():
@@ -247,7 +247,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                             pushed_at=None,
                         )
                     )
-            
+
             return repositories[:per_page]
         except Exception as e:
             logger.warning(f"Error searching repositories: {e}")
@@ -259,12 +259,12 @@ class AzureDevOpsService(BaseGitService, GitService):
             await self.loadOrganization_and_project()
 
             # Extract organization and project from base_domain
-                
+
             # Get active pull requests with conflicts
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/pullrequests"
             params = {"status": "active"}
             data, _ = await self._make_request(url, params)
-            
+
             tasks = []
             for pr in data.get("value", []):
                 # Check if PR has merge conflicts
@@ -279,7 +279,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                             title=pr.get("title", ""),
                         )
                     )
-                
+
                 # Check if PR has failing checks
                 if pr.get("status") == "active" and not pr.get("isDraft", False):
                     # Get PR status
@@ -287,13 +287,13 @@ class AzureDevOpsService(BaseGitService, GitService):
                     repo_id = pr.get("repository", {}).get("id", "")
                     status_url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_id}/pullRequests/{pr_id}/statuses"
                     status_data, _ = await self._make_request(status_url)
-                    
+
                     has_failing_checks = False
                     for status in status_data.get("value", []):
                         if status.get("state") == "failed":
                             has_failing_checks = True
                             break
-                    
+
                     if has_failing_checks:
                         repo_name = pr.get("repository", {}).get("name", "")
                         tasks.append(
@@ -305,7 +305,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                                 title=pr.get("title", ""),
                             )
                         )
-            
+
             return tasks
         except Exception as e:
             logger.warning(f"Error getting suggested tasks: {e}")
@@ -320,7 +320,7 @@ class AzureDevOpsService(BaseGitService, GitService):
             parts = repository.split("/")
             if len(parts) >= 3:
                 repo_name = parts[2]
-                
+
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}"
             data, _ = await self._make_request(url)
             repo_id = hash(data.get('id', '')) % (2**31)
@@ -344,19 +344,19 @@ class AzureDevOpsService(BaseGitService, GitService):
 
             # Extract organization and project from base_domain or repository path
             parts = repository.split("/")
-            if len(parts) >= 3:                
+            if len(parts) >= 3:
                 repo_name = parts[2]
-                
+
             # First get the repository ID
             repo_url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}"
             repo_data, _ = await self._make_request(repo_url)
             repo_id = repo_data.get("id", "")
-            
+
             # Now get the branches
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_id}/refs"
             params = {"filter": "heads/"}
             data, _ = await self._make_request(url, params)
-            
+
             branches = []
             for ref in data.get("value", []):
                 if ref.get("name", "").startswith("refs/heads/"):
@@ -369,12 +369,61 @@ class AzureDevOpsService(BaseGitService, GitService):
                             last_push_date=None,  # Azure DevOps doesn't expose this info in the API
                         )
                     )
-            
+
             return branches
         except Exception as e:
             logger.warning(f"Error getting branches: {e}")
             return []
 
+    async def create_pr(self, repository: str, source_branch: str, target_branch: str, title: str, body: str) -> str:
+        """Create a pull request"""
+        try:
+            await self.loadOrganization_and_project()
+
+            # Extract organization and project from base_domain or repository path
+            parts = repository.split("/")
+            if len(parts) >= 3:
+                repo_name = parts[2]
+
+            # Create the PR
+            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}/pullRequests"
+            payload = {
+                "title": title,
+                "description": body,
+                "sourceRefName": source_branch,
+                "targetRefName": target_branch
+            }
+
+            response, _ = await self._make_request(url, payload, RequestMethod.POST)
+            return response['url']
+        except Exception as e:
+            logger.warning(f"Error creating pull request: {e}")
+            raise UnknownException(f"Error creating pull request: {e}")
+
+
+    async def create_issue(self, repository: str, title: str, body: str) -> str:
+        """Create an issue"""
+        try:
+            await self.loadOrganization_and_project()
+
+            # Extract organization and project from base_domain or repository path
+            parts = repository.split("/")
+            if len(parts) >= 3:
+                repo_name = parts[2]
+
+            # Create the task
+            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/wit/workItems"
+            payload = {
+                "title": title,
+                "description": body,
+            }
+
+            response, _ = await self._make_request(url, payload, RequestMethod.POST)
+            return response['url']
+
+        except Exception as e:
+            logger.warning(f"Error creating issue: {e}")
+            raise UnknownException(f"Error creating issue: {e}")
 
 class AzureDevOpsServiceImpl(AzureDevOpsService):
     """Implementation of the Azure DevOps service."""

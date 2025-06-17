@@ -233,3 +233,10 @@ class GitService(Protocol):
 
     async def get_branches(self, repository: str) -> list[Branch]:
         """Get branches for a repository"""
+
+    async def create_pr(self, repository: str, source_branch: str, target_branch: str, title: str, body: str) -> str:
+        """Create a pull request"""
+
+    async def create_issue(self, repository: str, title: str, body: str) -> str:
+        """Create an issue"""
+

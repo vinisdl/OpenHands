@@ -142,11 +142,11 @@ class ProviderHandler:
             external_token_manager=self.external_token_manager,
             base_domain=token.host,
         )
-        
+
         # Set base domain for token validation
         if token.host and hasattr(service, 'base_domain'):
             service.base_domain = token.host
-            
+
         return service
 
     async def get_user(self) -> User:
@@ -196,6 +196,24 @@ class ProviderHandler:
                 logger.warning(f'Error fetching repos from {provider}: {e}')
 
         return tasks
+
+    async def create_pr(self, repository: str, source_branch: str, target_branch: str, title: str, body: str) -> str:
+        """Create a pull request"""
+        for provider in self.provider_tokens:
+            try:
+                service = self._get_service(provider)
+                return await service.create_pr(repository, source_branch, target_branch, title, body)
+            except Exception as e:
+                logger.warning(f'Error creating PR from {provider}: {e}')
+
+    async def create_issue(self, repository: str, title: str, body: str) -> str:
+        """Create an issue"""
+        for provider in self.provider_tokens:
+            try:
+                service = self._get_service(provider)
+                return await service.create_issue(repository, title, body)
+            except Exception as e:
+                logger.warning(f'Error creating issue from {provider}: {e}')
 
     async def search_repositories(
         self,
