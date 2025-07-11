@@ -11,7 +11,7 @@ from openhands.core.logger import openhands_logger as logger
 from openhands.integrations.bitbucket.bitbucket_service import BitBucketServiceImpl
 from openhands.integrations.github.github_service import GithubServiceImpl
 from openhands.integrations.gitlab.gitlab_service import GitLabServiceImpl
-from openhands.integrations.provider import ProviderToken
+from openhands.integrations.provider import ProviderHandler, ProviderToken
 from openhands.integrations.service_types import GitService, ProviderType
 from openhands.server.dependencies import get_dependencies
 from openhands.server.shared import ConversationStoreImpl, config, server_config
@@ -31,7 +31,7 @@ HOST = f'https://{os.getenv("WEB_HOST", "app.all-hands.dev").strip()}'
 CONVO_URL = HOST + '/conversations/{}'
 
 
-async def get_convo_link(service: GitService, conversation_id: str, body: str) -> str:
+async def get_convo_link(conversation_id: str, body: str) -> str:
     """
     Appends a followup link, in the PR body, to the OpenHands conversation that opened the PR
     """
@@ -39,11 +39,9 @@ async def get_convo_link(service: GitService, conversation_id: str, body: str) -
     if server_config.app_mode != AppMode.SAAS:
         return body
 
-    user = await service.get_user()
-    username = user.login
     convo_url = CONVO_URL.format(conversation_id)
     convo_link = (
-        f'@{username} can click here to [continue refining the PR]({convo_url})'
+        f'Click here to [continue refining the PR]({convo_url})'
     )
     body += f'\n\n{convo_link}'
     return body
@@ -82,7 +80,7 @@ async def save_pr_metadata(
 @mcp_server.tool()
 async def create_pr(
     repo_name: Annotated[
-        str, Field(description='GitHub repository ({{owner}}/{{repo}})')
+        str, Field(description='GitHub/Azure DevOps repository ({{owner}}/{{repo}})')
     ],
     source_branch: Annotated[str, Field(description='Source branch on repo')],
     target_branch: Annotated[str, Field(description='Target branch on repo')],
@@ -93,7 +91,7 @@ async def create_pr(
         list[str] | None, Field(description='Labels to apply to the PR')
     ] = None,
 ) -> str:
-    """Open a PR in GitHub"""
+    """Open a PR in GitHub/Azure DevOps"""
 
     logger.info('Calling OpenHands MCP create_pr')
 
@@ -105,27 +103,17 @@ async def create_pr(
     access_token = await get_access_token(request)
     user_id = await get_user_id(request)
 
-    github_token = (
-        provider_tokens.get(ProviderType.GITHUB, ProviderToken())
-        if provider_tokens
-        else ProviderToken()
-    )
 
-    github_service = GithubServiceImpl(
-        user_id=github_token.user_id,
-        external_auth_id=user_id,
-        external_auth_token=access_token,
-        token=github_token.token,
-        base_domain=github_token.host,
-    )
+    provider_handler = ProviderHandler(provider_tokens)
+
 
     try:
-        body = await get_convo_link(github_service, conversation_id, body or '')
+        body = await get_convo_link(conversation_id, body or '')
     except Exception as e:
         logger.warning(f'Failed to append convo link: {e}')
 
     try:
-        response = await github_service.create_pr(
+        response = await provider_handler.create_pr(
             repo_name=repo_name,
             source_branch=source_branch,
             target_branch=target_branch,
@@ -134,6 +122,8 @@ async def create_pr(
             draft=draft,
             labels=labels,
         )
+
+        print(f'Response: {response}')
 
         if conversation_id:
             await save_pr_metadata(user_id, conversation_id, response)

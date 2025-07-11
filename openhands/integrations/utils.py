@@ -1,5 +1,6 @@
 from pydantic import SecretStr
 
+from openhands.integrations.azuredevops.azuredevops_service import AzureDevOpsService
 from openhands.core.logger import openhands_logger as logger
 from openhands.integrations.bitbucket.bitbucket_service import BitBucketService
 from openhands.integrations.github.github_service import GitHubService
@@ -11,6 +12,7 @@ async def validate_provider_token(
     token: SecretStr, base_domain: str | None = None
 ) -> ProviderType | None:
     """
+    Determine whether a token is for GitHub, GitLab, or Azure DevOps by attempting to get user info
     Determine whether a token is for GitHub, GitLab, or Bitbucket by attempting to get user info
     from the services.
 
@@ -21,6 +23,7 @@ async def validate_provider_token(
     Returns:
         'github' if it's a GitHub token
         'gitlab' if it's a GitLab token
+        'azure_devops' if it's an Azure DevOps token
         'bitbucket' if it's a Bitbucket token
         None if the token is invalid for all services
     """
@@ -58,5 +61,17 @@ async def validate_provider_token(
     logger.debug(
         f'Failed to validate token: {github_error} \n {gitlab_error} \n {bitbucket_error}'
     )
+
+    # Try Azure DevOps last
+    try:
+        # For Azure DevOps, we need organization and project
+        # These would typically be provided in the ProviderToken
+        # but for validation we just check if the token works
+        azure_service = AzureDevOpsService(token=token, base_domain=base_domain)
+        # If we have organization set, try to get user info
+        await azure_service.get_user()
+        return ProviderType.AZURE_DEVOPS
+    except Exception:
+        pass
 
     return None

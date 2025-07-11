@@ -630,6 +630,7 @@ fi
             ProviderType.GITHUB: 'github.com',
             ProviderType.GITLAB: 'gitlab.com',
             ProviderType.BITBUCKET: 'bitbucket.org',
+            ProviderType.AZURE_DEVOPS: 'dev.azure.com',
         }
 
         domain = provider_domains[provider]
@@ -655,6 +656,13 @@ fi
                     else:
                         # Access token format: use x-token-auth
                         remote_url = f'https://x-token-auth:{token_value}@{domain}/{repo_name}.git'
+                elif provider == ProviderType.AZURE_DEVOPS:
+                    parts = repo_name.strip("/").split("/")
+                    if len(parts) != 3:
+                        raise ValueError("Azure devops: repo_name deve ter 3 partes: org/project/repo")
+                    organization, project, repository = parts
+                    remote_repo_url = f"https://{git_token.get_secret_value()}@dev.azure.com/{organization}/{project}/_git/{repository}"
+                    print(f"remote_repo_url: {remote_repo_url}")
                 else:
                     # GitHub
                     remote_url = f'https://{token_value}@{domain}/{repo_name}.git'
