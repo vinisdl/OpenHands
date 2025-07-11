@@ -39,6 +39,7 @@ class GitHubService(BaseGitService, GitService):
 
     The class is instantiated via get_impl() in openhands.server.shared.py.
     """
+
     BASE_URL = 'https://api.github.com'
     token: SecretStr = SecretStr('')
     refresh = False
@@ -71,7 +72,9 @@ class GitHubService(BaseGitService, GitService):
     async def _get_github_headers(self) -> dict:
         """Retrieve the GH Token from settings store to construct the headers."""
         if not self.token:
-            self.token = await self.get_latest_token()
+            latest_token = await self.get_latest_token()
+            if latest_token:
+                self.token = latest_token
 
         return {
             'Authorization': f'Bearer {self.token.get_secret_value() if self.token else ""}',
@@ -132,7 +135,7 @@ class GitHubService(BaseGitService, GitService):
         response, _ = await self._make_request(url)
 
         return User(
-            id=response.get('id'),
+            id=str(response.get('id', '')),
             login=response.get('login'),
             avatar_url=response.get('avatar_url'),
             company=response.get('company'),
@@ -228,8 +231,8 @@ class GitHubService(BaseGitService, GitService):
         # Convert to Repository objects
         return [
             Repository(
-                id=repo.get('id'),
-                full_name=repo.get('full_name'),
+                id=str(repo.get('id')),  # type: ignore[arg-type]
+                full_name=repo.get('full_name'),  # type: ignore[arg-type]
                 stargazers_count=repo.get('stargazers_count'),
                 git_provider=ProviderType.GITHUB,
                 is_public=not repo.get('private', True),
@@ -261,7 +264,7 @@ class GitHubService(BaseGitService, GitService):
 
         repos = [
             Repository(
-                id=repo.get('id'),
+                id=str(repo.get('id')),
                 full_name=repo.get('full_name'),
                 stargazers_count=repo.get('stargazers_count'),
                 git_provider=ProviderType.GITHUB,
@@ -406,7 +409,7 @@ class GitHubService(BaseGitService, GitService):
         repo, _ = await self._make_request(url)
 
         return Repository(
-            id=repo.get('id'),
+            id=str(repo.get('id')),
             full_name=repo.get('full_name'),
             stargazers_count=repo.get('stargazers_count'),
             git_provider=ProviderType.GITHUB,
@@ -467,6 +470,7 @@ class GitHubService(BaseGitService, GitService):
         title: str,
         body: str | None = None,
         draft: bool = True,
+        labels: list[str] | None = None,
     ) -> str:
         """
         Creates a PR using user credentials
@@ -478,6 +482,7 @@ class GitHubService(BaseGitService, GitService):
             title: The title of the pull request (optional, defaults to a generic title)
             body: The body/description of the pull request (optional)
             draft: Whether to create the PR as a draft (optional, defaults to False)
+            labels: A list of labels to apply to the pull request (optional)
 
         Returns:
             - PR URL when successful
@@ -504,9 +509,17 @@ class GitHubService(BaseGitService, GitService):
             url=url, params=payload, method=RequestMethod.POST
         )
 
+        # Add labels if provided (PRs are a type of issue in GitHub's API)
+        if labels and len(labels) > 0:
+            pr_number = response['number']
+            labels_url = f'{self.BASE_URL}/repos/{repo_name}/issues/{pr_number}/labels'
+            labels_payload = {'labels': labels}
+            await self._make_request(
+                url=labels_url, params=labels_payload, method=RequestMethod.POST
+            )
+
         # Return the HTML URL of the created PR
         return response['html_url']
-
 
 
 github_service_cls = os.environ.get(

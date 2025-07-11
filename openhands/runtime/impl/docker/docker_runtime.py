@@ -1,7 +1,7 @@
 import os
+import typing
 from functools import lru_cache
 from typing import Callable
-import typing
 from uuid import UUID
 
 import docker
@@ -17,6 +17,7 @@ from openhands.core.exceptions import (
 from openhands.core.logger import DEBUG, DEBUG_RUNTIME
 from openhands.core.logger import openhands_logger as logger
 from openhands.events import EventStream
+from openhands.integrations.provider import PROVIDER_TOKEN_TYPE
 from openhands.runtime.builder import DockerRuntimeBuilder
 from openhands.runtime.impl.action_execution.action_execution_client import (
     ActionExecutionClient,
@@ -86,6 +87,8 @@ class DockerRuntime(ActionExecutionClient):
         status_callback: Callable | None = None,
         attach_to_existing: bool = False,
         headless_mode: bool = True,
+        user_id: str | None = None,
+        git_provider_tokens: PROVIDER_TOKEN_TYPE | None = None,
         main_module: str = DEFAULT_MAIN_MODULE,
     ):
         if not DockerRuntime._shutdown_listener_id:
@@ -132,6 +135,8 @@ class DockerRuntime(ActionExecutionClient):
             status_callback,
             attach_to_existing,
             headless_mode,
+            user_id,
+            git_provider_tokens,
         )
 
         # Log runtime_extra_deps after base class initialization so self.sid is available
@@ -256,7 +261,8 @@ class DockerRuntime(ActionExecutionClient):
             mount_mode = 'rw'  # Default mode
 
             # e.g. result would be: {"/home/user/openhands/workspace": {'bind': "/workspace", 'mode': 'rw'}}
-            volumes[self.config.workspace_mount_path] = {
+            # Add os.path.abspath() here so that relative paths can be used when workspace_mount_path is configured in config.toml
+            volumes[os.path.abspath(self.config.workspace_mount_path)] = {
                 'bind': self.config.workspace_mount_path_in_sandbox,
                 'mode': mount_mode,
             }
@@ -283,7 +289,9 @@ class DockerRuntime(ActionExecutionClient):
         self.api_url = f'{self.config.sandbox.local_runtime_url}:{self._container_port}'
 
         use_host_network = self.config.sandbox.use_host_network
-        network_mode: typing.Literal['host'] | None = 'host' if use_host_network else None
+        network_mode: typing.Literal['host'] | None = (
+            'host' if use_host_network else None
+        )
 
         # Initialize port mappings
         port_mapping: dict[str, list[dict[str, str]]] | None = None
@@ -353,7 +361,23 @@ class DockerRuntime(ActionExecutionClient):
         )
 
         command = self.get_action_execution_server_startup_command()
+        self.log('info', f'Starting server with command: {command}')
 
+        if self.config.sandbox.enable_gpu:
+            gpu_ids = self.config.sandbox.cuda_visible_devices
+            if gpu_ids is None:
+                device_requests = [
+                    docker.types.DeviceRequest(capabilities=[['gpu']], count=-1)
+                ]
+            else:
+                device_requests = [
+                    docker.types.DeviceRequest(
+                        capabilities=[['gpu']],
+                        device_ids=[str(i) for i in gpu_ids.split(',')],
+                    )
+                ]
+        else:
+            device_requests = None
         try:
             # Gera o hostname desejado, por exemplo:
             host = f"{self.container_name}.tars.dbserver.com.br"
@@ -403,11 +427,8 @@ class DockerRuntime(ActionExecutionClient):
                 environment=environment,
                 volumes=volumes,
                 labels=labels,
-                device_requests=(
-                    [docker.types.DeviceRequest(capabilities=[['gpu']], count=-1)]
-                    if self.config.sandbox.enable_gpu
-                    else None
-                ),
+                device_requests=device_requests,
+
                 **(self.config.sandbox.docker_runtime_kwargs or {}),
             )
             self.log('debug', f'Container started. Server url: {self.api_url}')

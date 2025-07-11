@@ -9,6 +9,7 @@ import { EllipsisButton } from "./ellipsis-button";
 import { ConversationCardContextMenu } from "./conversation-card-context-menu";
 import { SystemMessageModal } from "./system-message-modal";
 import { MicroagentsModal } from "./microagents-modal";
+import { BudgetDisplay } from "./budget-display";
 import { cn } from "#/utils/utils";
 import { BaseModal } from "../../shared/modals/base-modal/base-modal";
 import { RootState } from "#/store";
@@ -18,15 +19,17 @@ import OpenHands from "#/api/open-hands";
 import { useWsClient } from "#/context/ws-client-provider";
 import { isSystemMessage } from "#/types/core/guards";
 import { ConversationStatus } from "#/types/conversation-status";
+import { RepositorySelection } from "#/api/open-hands.types";
 
 interface ConversationCardProps {
   onClick?: () => void;
   onDelete?: () => void;
+  onStop?: () => void;
   onChangeTitle?: (title: string) => void;
   showOptions?: boolean;
   isActive?: boolean;
   title: string;
-  selectedRepository: string | null;
+  selectedRepository: RepositorySelection | null;
   lastUpdatedAt: string; // ISO 8601
   createdAt?: string; // ISO 8601
   conversationStatus?: ConversationStatus;
@@ -39,6 +42,7 @@ const MAX_TIME_BETWEEN_CREATION_AND_UPDATE = 1000 * 60 * 30; // 30 minutes
 export function ConversationCard({
   onClick,
   onDelete,
+  onStop,
   onChangeTitle,
   showOptions,
   isActive,
@@ -97,6 +101,13 @@ export function ConversationCard({
     event.preventDefault();
     event.stopPropagation();
     onDelete?.();
+    setContextMenuVisible(false);
+  };
+
+  const handleStop = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onStop?.();
     setContextMenuVisible(false);
   };
 
@@ -170,7 +181,7 @@ export function ConversationCard({
         data-testid="conversation-card"
         onClick={onClick}
         className={cn(
-          "h-[100px] w-full px-[18px] py-4 border-b border-neutral-600 cursor-pointer",
+          "h-auto w-full px-[18px] py-4 border-b border-neutral-600 cursor-pointer",
           variant === "compact" &&
             "md:w-fit h-auto rounded-xl border border-[#525252]",
         )}
@@ -223,6 +234,11 @@ export function ConversationCard({
                 <ConversationCardContextMenu
                   onClose={() => setContextMenuVisible(false)}
                   onDelete={onDelete && handleDelete}
+                  onStop={
+                    conversationStatus !== "STOPPED"
+                      ? onStop && handleStop
+                      : undefined
+                  }
                   onEdit={onChangeTitle && handleEdit}
                   onDownloadViaVSCode={
                     conversationId && showOptions
@@ -249,28 +265,33 @@ export function ConversationCard({
 
         <div
           className={cn(
-            variant === "compact" && "flex items-center justify-between mt-1",
+            variant === "compact" && "flex flex-col justify-between mt-1",
           )}
         >
-          {selectedRepository && (
-            <ConversationRepoLink selectedRepository={selectedRepository} />
+          {selectedRepository?.selected_repository && (
+            <ConversationRepoLink
+              selectedRepository={selectedRepository}
+              variant={variant}
+            />
           )}
-          <p className="text-xs text-neutral-400">
-            <span>{t(I18nKey.CONVERSATION$CREATED)} </span>
-            <time>
-              {formatTimeDelta(new Date(createdAt || lastUpdatedAt))}{" "}
-              {t(I18nKey.CONVERSATION$AGO)}
-            </time>
-            {showUpdateTime && (
-              <>
-                <span>{t(I18nKey.CONVERSATION$UPDATED)} </span>
-                <time>
-                  {formatTimeDelta(new Date(lastUpdatedAt))}{" "}
-                  {t(I18nKey.CONVERSATION$AGO)}
-                </time>
-              </>
-            )}
-          </p>
+          {(createdAt || lastUpdatedAt) && (
+            <p className="text-xs text-neutral-400">
+              <span>{t(I18nKey.CONVERSATION$CREATED)} </span>
+              <time>
+                {formatTimeDelta(new Date(createdAt || lastUpdatedAt))}{" "}
+                {t(I18nKey.CONVERSATION$AGO)}
+              </time>
+              {showUpdateTime && (
+                <>
+                  <span>{t(I18nKey.CONVERSATION$UPDATED)} </span>
+                  <time>
+                    {formatTimeDelta(new Date(lastUpdatedAt))}{" "}
+                    {t(I18nKey.CONVERSATION$AGO)}
+                  </time>
+                </>
+              )}
+            </p>
+          )}
         </div>
       </div>
 
@@ -285,7 +306,7 @@ export function ConversationCard({
             <div className="rounded-md p-3">
               <div className="grid gap-3">
                 {metrics?.cost !== null && (
-                  <div className="flex justify-between items-center border-b border-neutral-700 pb-2">
+                  <div className="flex justify-between items-center pb-2">
                     <span className="text-lg font-semibold">
                       {t(I18nKey.CONVERSATION$TOTAL_COST)}
                     </span>
@@ -294,6 +315,10 @@ export function ConversationCard({
                     </span>
                   </div>
                 )}
+                <BudgetDisplay
+                  cost={metrics?.cost ?? null}
+                  maxBudgetPerTask={metrics?.max_budget_per_task ?? null}
+                />
 
                 {metrics?.usage !== null && (
                   <>
@@ -305,11 +330,15 @@ export function ConversationCard({
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 pl-4 text-sm">
-                      <span className="text-neutral-400">Cache Hit:</span>
+                      <span className="text-neutral-400">
+                        {t(I18nKey.CONVERSATION$CACHE_HIT)}
+                      </span>
                       <span className="text-right">
                         {metrics.usage.cache_read_tokens.toLocaleString()}
                       </span>
-                      <span className="text-neutral-400">Cache Write:</span>
+                      <span className="text-neutral-400">
+                        {t(I18nKey.CONVERSATION$CACHE_WRITE)}
+                      </span>
                       <span className="text-right">
                         {metrics.usage.cache_write_tokens.toLocaleString()}
                       </span>
@@ -384,10 +413,7 @@ export function ConversationCard({
       />
 
       {microagentsModalVisible && (
-        <MicroagentsModal
-          onClose={() => setMicroagentsModalVisible(false)}
-          conversationId={conversationId}
-        />
+        <MicroagentsModal onClose={() => setMicroagentsModalVisible(false)} />
       )}
     </>
   );

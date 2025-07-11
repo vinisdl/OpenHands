@@ -112,6 +112,59 @@ class OpenHands {
   }
 
   /**
+   * Submit conversation feedback with rating
+   * @param conversationId The conversation ID
+   * @param rating The rating (1-5)
+   * @param eventId Optional event ID this feedback corresponds to
+   * @param reason Optional reason for the rating
+   * @returns Response from the feedback endpoint
+   */
+  static async submitConversationFeedback(
+    conversationId: string,
+    rating: number,
+    eventId?: number,
+    reason?: string,
+  ): Promise<{ status: string; message: string }> {
+    const url = `/feedback/conversation`;
+    const payload = {
+      conversation_id: conversationId,
+      event_id: eventId,
+      rating,
+      reason,
+      metadata: { source: "likert-scale" },
+    };
+    const { data } = await openHands.post<{ status: string; message: string }>(
+      url,
+      payload,
+    );
+    return data;
+  }
+
+  /**
+   * Check if feedback exists for a specific conversation and event
+   * @param conversationId The conversation ID
+   * @param eventId The event ID to check
+   * @returns Feedback data including existence, rating, and reason
+   */
+  static async checkFeedbackExists(
+    conversationId: string,
+    eventId: number,
+  ): Promise<{ exists: boolean; rating?: number; reason?: string }> {
+    try {
+      const url = `/feedback/conversation/${conversationId}/${eventId}`;
+      const { data } = await openHands.get<{
+        exists: boolean;
+        rating?: number;
+        reason?: string;
+      }>(url);
+      return data;
+    } catch (error) {
+      // Error checking if feedback exists
+      return { exists: false };
+    }
+  }
+
+  /**
    * Authenticate with GitHub token
    * @returns Response with authentication status and user info if successful
    */
@@ -205,19 +258,17 @@ class OpenHands {
     selectedRepository?: string,
     git_provider?: Provider,
     initialUserMsg?: string,
-    imageUrls?: string[],
-    replayJson?: string,
     suggested_task?: SuggestedTask,
     selected_branch?: string,
+    conversationInstructions?: string,
   ): Promise<Conversation> {
     const body = {
       repository: selectedRepository,
       git_provider,
       selected_branch,
       initial_user_msg: initialUserMsg,
-      image_urls: imageUrls,
-      replay_json: replayJson,
       suggested_task,
+      conversation_instructions: conversationInstructions,
     };
 
     const { data } = await openHands.post<Conversation>(
@@ -240,9 +291,11 @@ class OpenHands {
 
   static async startConversation(
     conversationId: string,
+    providers?: Provider[],
   ): Promise<Conversation | null> {
     const { data } = await openHands.post<Conversation | null>(
       `/api/conversations/${conversationId}/start`,
+      providers ? { providers_set: providers } : {},
     );
 
     return data;
@@ -423,6 +476,18 @@ class OpenHands {
     );
 
     return data.prompt;
+  }
+
+  static async updateConversation(
+    conversationId: string,
+    updates: { title: string },
+  ): Promise<boolean> {
+    const { data } = await openHands.patch<boolean>(
+      `/api/conversations/${conversationId}`,
+      updates,
+    );
+
+    return data;
   }
 }
 

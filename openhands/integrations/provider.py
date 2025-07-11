@@ -5,6 +5,7 @@ from typing import Annotated, Any, Coroutine, Literal, overload
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     SecretStr,
     WithJsonSchema,
@@ -17,6 +18,7 @@ from openhands.events.stream import EventStream
 from openhands.integrations.azuredevops.azuredevops_service import (
     AzureDevOpsServiceImpl,
 )
+from openhands.integrations.bitbucket.bitbucket_service import BitBucketServiceImpl
 from openhands.integrations.github.github_service import GithubServiceImpl
 from openhands.integrations.gitlab.gitlab_service import GitLabServiceImpl
 from openhands.integrations.service_types import (
@@ -36,10 +38,10 @@ class ProviderToken(BaseModel):
     user_id: str | None = Field(default=None)
     host: str | None = Field(default=None)
 
-    model_config = {
-        'frozen': True,  # Makes the entire model immutable
-        'validate_assignment': True,
-    }
+    model_config = ConfigDict(
+        frozen=True,  # Makes the entire model immutable
+        validate_assignment=True,
+    )
 
     @classmethod
     def from_value(cls, token_value: ProviderToken | dict[str, str]) -> ProviderToken:
@@ -51,7 +53,7 @@ class ProviderToken(BaseModel):
             # Override with emtpy string if it was set to None
             # Cannot pass None to SecretStr
             if token_str is None:
-                token_str = ''
+                token_str = ''  # type: ignore[unreachable]
             user_id = token_value.get('user_id')
             host = token_value.get('host')
             return cls(
@@ -68,10 +70,10 @@ class CustomSecret(BaseModel):
     secret: SecretStr = Field(default_factory=lambda: SecretStr(''))
     description: str = Field(default='')
 
-    model_config = {
-        'frozen': True,  # Makes the entire model immutable
-        'validate_assignment': True,
-    }
+    model_config = ConfigDict(
+        frozen=True,  # Makes the entire model immutable
+        validate_assignment=True,
+    )
 
     @classmethod
     def from_value(cls, secret_value: CustomSecret | dict[str, str]) -> CustomSecret:
@@ -79,8 +81,8 @@ class CustomSecret(BaseModel):
         if isinstance(secret_value, CustomSecret):
             return secret_value
         elif isinstance(secret_value, dict):
-            secret = secret_value.get('secret')
-            description = secret_value.get('description')
+            secret = secret_value.get('secret', '')
+            description = secret_value.get('description', '')
             return cls(secret=SecretStr(secret), description=description)
 
         else:
@@ -116,6 +118,7 @@ class ProviderHandler:
             ProviderType.GITHUB: GithubServiceImpl,
             ProviderType.GITLAB: GitLabServiceImpl,
             ProviderType.AZURE_DEVOPS: AzureDevOpsServiceImpl,
+            ProviderType.BITBUCKET: BitBucketServiceImpl,
         }
 
         self.external_auth_id = external_auth_id
@@ -355,21 +358,27 @@ class ProviderHandler:
 
     async def verify_repo_provider(
         self, repository: str, specified_provider: ProviderType | None = None
-    ):
+    ) -> Repository:
+        errors = []
+
         if specified_provider:
             try:
                 service = self._get_service(specified_provider)
                 return await service.get_repository_details_from_repo_name(repository)
-            except Exception:
-                pass
+            except Exception as e:
+                errors.append(f'{specified_provider.value}: {str(e)}')
 
         for provider in self.provider_tokens:
             try:
                 service = self._get_service(provider)
                 return await service.get_repository_details_from_repo_name(repository)
-            except Exception:
-                pass
+            except Exception as e:
+                errors.append(f'{provider.value}: {str(e)}')
 
+        # Log all accumulated errors before raising AuthenticationError
+        logger.error(
+            f'Failed to access repository {repository} with all available providers. Errors: {"; ".join(errors)}'
+        )
         raise AuthenticationError(f'Unable to access repo {repository}')
 
     async def get_branches(
