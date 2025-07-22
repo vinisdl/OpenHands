@@ -367,9 +367,7 @@ class Runtime(FileEditRuntimeMixin):
         selected_branch: str | None,
     ) -> str:
         if not selected_repository:
-            # In SaaS mode (indicated by user_id being set), always run git init
-            # In OSS mode, only run git init if workspace_base is not set
-            if self.user_id or not self.config.workspace_base:
+            if self.config.init_git_in_empty_workspace:
                 logger.debug(
                     'No repository selected. Initializing a new git repository in the workspace.'
                 )
@@ -383,8 +381,8 @@ class Runtime(FileEditRuntimeMixin):
                 )
             return ''
 
-        remote_repo_url = await self._get_authenticated_git_url(
-            selected_repository, git_provider_tokens
+        remote_repo_url = await self.provider_handler.get_authenticated_git_url(
+            selected_repository
         )
 
         if not remote_repo_url:
@@ -673,6 +671,7 @@ fi
 
         return remote_url
 
+
     def _is_gitlab_repository(self, repo_name: str) -> bool:
         """Check if a repository is hosted on GitLab.
 
@@ -770,10 +769,9 @@ fi
             # Get authenticated URL and do a shallow clone (--depth 1) for efficiency
             try:
                 remote_url = call_async_from_sync(
-                    self._get_authenticated_git_url,
+                    self.provider_handler.get_authenticated_git_url,
                     GENERAL_TIMEOUT,
                     org_openhands_repo,
-                    self.git_provider_tokens,
                 )
             except Exception as e:
                 self.log(
@@ -1070,7 +1068,8 @@ fi
 
     def get_git_changes(self, cwd: str) -> list[dict[str, str]] | None:
         self.git_handler.set_cwd(cwd)
-        return self.git_handler.get_git_changes()
+        changes = self.git_handler.get_git_changes()
+        return changes
 
     def get_git_diff(self, file_path: str, cwd: str) -> dict[str, str]:
         self.git_handler.set_cwd(cwd)
