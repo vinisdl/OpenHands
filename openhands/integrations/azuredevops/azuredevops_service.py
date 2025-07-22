@@ -46,8 +46,17 @@ class AzureDevOpsService(BaseGitService, GitService):
         if token:
             self.token = token
 
+        if base_domain:
+            self.base_domain = base_domain
 
-        self.loadOrganization_and_project()
+        # Initialize organization and project from base_domain if provided
+        if self.base_domain and self.base_domain != 'dev.azure.com':
+            parts = self.base_domain.split('/')
+            if len(parts) >= 2:
+                self.organization = parts[1]  # dev.azure.com/org/project -> org
+            if len(parts) >= 3:
+                self.project = parts[2]  # dev.azure.com/org/project -> project
+
         self.external_auth_id = external_auth_id
         self.external_auth_token = external_auth_token
 
@@ -130,24 +139,42 @@ class AzureDevOpsService(BaseGitService, GitService):
 
         print(f"Azure DevOps credentials: {headers}")
         try:
-
             await self.loadOrganization_and_project()
 
-            # Get the current user profile
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.BASE_VSAEX_URL}/{self.organization}/_apis/connectionData?api-version=7.2-preview.1",
-                    headers=headers,
-                )
+            # Try to get user info using the organization if available
+            if self.organization:
+                # Get the current user profile using organization
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.BASE_VSAEX_URL}/{self.organization}/_apis/connectionData?api-version=7.2-preview.1",
+                        headers=headers,
+                    )
 
-            if response.status_code == 401:
-                raise self.handle_http_status_error(response)
-            elif response.status_code != 200:
-                raise UnknownException(
-                    f'Failed to get user information: {response.status_code} {response.text}'
-                )
+                if response.status_code == 401:
+                    raise self.handle_http_status_error(response)
+                elif response.status_code != 200:
+                    raise UnknownException(
+                        f'Failed to get user information: {response.status_code} {response.text}'
+                    )
 
-            user_data = response.json().get('authenticatedUser', {})
+                user_data = response.json().get('authenticatedUser', {})
+            else:
+                # Fallback: try to get user info without organization
+                # This uses a different endpoint that doesn't require organization
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=6.0",
+                        headers=headers,
+                    )
+
+                if response.status_code == 401:
+                    raise self.handle_http_status_error(response)
+                elif response.status_code != 200:
+                    raise UnknownException(
+                        f'Failed to get user information: {response.status_code} {response.text}'
+                    )
+
+                user_data = response.json()
 
             # Convert string ID to integer by hashing it
             print(f"User data: {user_data}")
@@ -156,11 +183,11 @@ class AzureDevOpsService(BaseGitService, GitService):
 
             # Create User object
             return User(
-                id=user_id,
-                login=user_data.get('properties.Account.$value', ''),
+                id=str(user_id),
+                login=user_data.get('properties.Account.$value', user_data.get('emailAddress', '')),
                 avatar_url=user_data.get('imageUrl', ''),
-                name=user_data.get('providerDisplayName', ''),
-                email=user_data.get('properties.Account.$value', ''),
+                name=user_data.get('providerDisplayName', user_data.get('displayName', '')),
+                email=user_data.get('properties.Account.$value', user_data.get('emailAddress', '')),
                 company=None,
             )
         except httpx.RequestError as e:
@@ -168,14 +195,19 @@ class AzureDevOpsService(BaseGitService, GitService):
             raise UnknownException(f'Request error: {str(e)}')
         except Exception as e:
             print(f'Error: {str(e)}')
+            raise UnknownException(f'Error getting user information: {str(e)}')
 
 
     async def get_repositories(self, sort: str, app_mode: AppMode) -> list[Repository]:
         """Get repositories for the authenticated user."""
-        # Get user profile to extract organization and project
         try:
             await self.loadOrganization_and_project()
-            user = await self.get_user()
+
+            # If organization and project are not set, we can't get repositories
+            if not self.organization or not self.project:
+                logger.warning("Azure DevOps organization and project not configured. Cannot get repositories.")
+                return []
+
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories"
             data, _ = await self._make_request(url)
 
@@ -184,7 +216,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                 repo_id = hash(repo.get('id', '')) % (2**31)
                 repositories.append(
                     Repository(
-                        id=repo_id,
+                        id=repo.get('id', ''),
                         full_name=f"{self.organization}/{self.project}/{repo.get('name', '')}",
                         git_provider=ProviderType.AZURE_DEVOPS,
                         is_public=False,  # Azure DevOps repos are private by default
@@ -207,9 +239,12 @@ class AzureDevOpsService(BaseGitService, GitService):
     ) -> list[Repository]:
         """Search for repositories."""
         try:
-
             await self.loadOrganization_and_project()
 
+            # If organization and project are not set, we can't search repositories
+            if not self.organization or not self.project:
+                logger.warning("Azure DevOps organization and project not configured. Cannot search repositories.")
+                return []
 
             # Azure DevOps doesn't have a dedicated search API like GitHub
             # We'll get all repos and filter them by name
@@ -220,10 +255,9 @@ class AzureDevOpsService(BaseGitService, GitService):
             for repo in data.get("value", []):
                 if query.lower() in repo.get("name", "").lower():
                     repo_id = hash(repo.get('id', '')) % (2**31)
-
                     repositories.append(
                         Repository(
-                            id=repo_id,
+                            id=str(repo_id),
                             full_name=f"{self.organization}/{self.project}/{repo.get('name', '')}",
                             git_provider=ProviderType.AZURE_DEVOPS,
                             is_public=False,  # Azure DevOps repos are private by default
@@ -242,7 +276,10 @@ class AzureDevOpsService(BaseGitService, GitService):
         try:
             await self.loadOrganization_and_project()
 
-            # Extract organization and project from base_domain
+            # If organization and project are not set, we can't get suggested tasks
+            if not self.organization or not self.project:
+                logger.warning("Azure DevOps organization and project not configured. Cannot get suggested tasks.")
+                return []
 
             # Get active pull requests with conflicts
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/pullrequests"
@@ -259,7 +296,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                             git_provider=ProviderType.AZURE_DEVOPS,
                             task_type=TaskType.MERGE_CONFLICTS,
                             repo=f"{self.organization}/{self.project}/{repo_name}",
-                            issue_number=pr.get("pullRequestId", 0),
+                            issue_number=str(pr.get("pullRequestId", 0)),
                             title=pr.get("title", ""),
                         )
                     )
@@ -285,7 +322,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                                 git_provider=ProviderType.AZURE_DEVOPS,
                                 task_type=TaskType.FAILING_CHECKS,
                                 repo=f"{self.organization}/{self.project}/{repo_name}",
-                                issue_number=pr_id,
+                                issue_number=str(pr_id),
                                 title=pr.get("title", ""),
                             )
                         )
@@ -300,17 +337,23 @@ class AzureDevOpsService(BaseGitService, GitService):
         try:
             await self.loadOrganization_and_project()
 
+            # If organization and project are not set, we can't get repository details
+            if not self.organization or not self.project:
+                raise UnknownException("Azure DevOps organization and project not configured.")
+
             # Extract organization and project from base_domain or repository path
             parts = repository.split("/")
             if len(parts) >= 3:
                 repo_name = parts[2]
+            else:
+                raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}"
             data, _ = await self._make_request(url)
             repo_id = hash(data.get('id', '')) % (2**31)
 
             return Repository(
-                id=repo_id,
+                id=str(repo_id),
                 full_name=f"{self.organization}/{self.project}/{data.get('name', '')}",
                 git_provider=ProviderType.AZURE_DEVOPS,
                 is_public=False,  # Azure DevOps repos are private by default
@@ -326,10 +369,16 @@ class AzureDevOpsService(BaseGitService, GitService):
         try:
             await self.loadOrganization_and_project()
 
+            # If organization and project are not set, we can't get branches
+            if not self.organization or not self.project:
+                raise UnknownException("Azure DevOps organization and project not configured.")
+
             # Extract organization and project from base_domain or repository path
             parts = repository.split("/")
             if len(parts) >= 3:
                 repo_name = parts[2]
+            else:
+                raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
             # First get the repository ID
             repo_url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}"
@@ -348,7 +397,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                     branches.append(
                         Branch(
                             name=branch_name,
-                            commit_sha=ref.get("objectId", ""),
+                            commit_sha=str(ref.get("objectId", "")),
                             protected=False,  # Azure DevOps doesn't expose this info in the API
                             last_push_date=None,  # Azure DevOps doesn't expose this info in the API
                         )
@@ -363,6 +412,11 @@ class AzureDevOpsService(BaseGitService, GitService):
         """Create a pull request"""
         try:
             await self.loadOrganization_and_project()
+
+            # If organization and project are not set, we can't create PR
+            if not self.organization or not self.project:
+                raise UnknownException("Azure DevOps organization and project not configured.")
+
             print(f"base_domain: {self.base_domain}")
             print(f"organization: {self.organization}")
             print(f"project: {self.project}")
@@ -372,12 +426,12 @@ class AzureDevOpsService(BaseGitService, GitService):
             print(f"title: {title}")
             print(f"body: {body}")
 
-            # Extrair o nome do repositório
+            # Extract repository name from repository path
             parts = repository.split("/")
-            if len(parts) >= 2:
-                repo_name = parts[1]
+            if len(parts) >= 3:
+                repo_name = parts[2]  # organization/project/repository -> repository
             else:
-                raise UnknownException(f"Formato do parâmetro 'repository' inválido: {repository}")
+                raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
             # Buscar o repository ID pelo nome
             repo_url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories?api-version=7.1"
@@ -388,23 +442,23 @@ class AzureDevOpsService(BaseGitService, GitService):
                     repo_id = repo.get("id")
                     break
             if not repo_id:
-                raise UnknownException(f"Repositório {repo_name} não encontrado")
+                raise UnknownException(f"Repository {repo_name} not found")
 
-            # Montar o payload conforme o curl
+            # Create the payload for the pull request
             payload = {
                 "title": title,
                 "description": body or "",
                 "sourceRefName": f"refs/heads/{source_branch}",
                 "targetRefName": f"refs/heads/{target_branch}"
             }
-            print(f"Payload enviado para o PR: {payload}")
+            print(f"Payload sent for PR: {payload}")
 
-            # Enviar o POST com o payload como JSON
+            # Send the POST with the payload as JSON
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_id}/pullRequests?api-version=7.1"
             response, _ = await self._make_request(url, payload, RequestMethod.POST)
-            return response['url']
+            return response.get('url', '')
         except Exception as e:
-            print(f"Error creating pull request: {e}") 
+            print(f"Error creating pull request: {e}")
             logger.warning(f"Error creating pull request: {e}")
             raise UnknownException(f"Error creating pull request: {e}")
 
@@ -414,12 +468,18 @@ class AzureDevOpsService(BaseGitService, GitService):
         try:
             await self.loadOrganization_and_project()
 
+            # If organization and project are not set, we can't create issue
+            if not self.organization or not self.project:
+                raise UnknownException("Azure DevOps organization and project not configured.")
+
             # Extract organization and project from base_domain or repository path
             parts = repository.split("/")
             if len(parts) >= 3:
                 repo_name = parts[2]
+            else:
+                raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
-            # Create the task
+            # Create the work item
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/wit/workItems"
             payload = {
                 "title": title,
@@ -427,7 +487,7 @@ class AzureDevOpsService(BaseGitService, GitService):
             }
 
             response, _ = await self._make_request(url, payload, RequestMethod.POST)
-            return response['url']
+            return response.get('url', '')
 
         except Exception as e:
             logger.warning(f"Error creating issue: {e}")

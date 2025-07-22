@@ -107,6 +107,7 @@ class ProviderHandler:
         ProviderType.GITHUB: 'github.com',
         ProviderType.GITLAB: 'gitlab.com',
         ProviderType.BITBUCKET: 'bitbucket.org',
+        ProviderType.AZURE_DEVOPS: 'dev.azure.com',
     }
 
     def __init__(
@@ -481,6 +482,16 @@ class ProviderHandler:
                     else:
                         # Access token format: use x-token-auth
                         remote_url = f'https://x-token-auth:{token_value}@{domain}/{repo_name}.git'
+                elif provider == ProviderType.AZURE_DEVOPS:
+                    # For Azure DevOps, the format is different
+                    # repo_name should be in format: organization/project/repository
+                    parts = repo_name.split('/')
+                    if len(parts) >= 3:
+                        organization, project, repository = parts[0], parts[1], parts[2]
+                        remote_url = f"https://{token_value}@dev.azure.com/{organization}/{project}/_git/{repository}"
+                    else:
+                        # Fallback to standard format
+                        remote_url = f'https://{token_value}@{domain}/{repo_name}.git'
                 else:
                     # GitHub
                     remote_url = f'https://{token_value}@{domain}/{repo_name}.git'
