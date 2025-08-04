@@ -58,8 +58,16 @@ async def validate_provider_token(
     except Exception as e:
         bitbucket_error = e
 
+    azure_devops_error = None
+    try:
+        azure_devops_service = AzureDevOpsService(token=token, base_domain=base_domain)
+        await azure_devops_service.get_user()
+        return ProviderType.AZURE_DEVOPS
+    except Exception as e:
+        azure_devops_error = e
+
     logger.debug(
-        f'Failed to validate token: {github_error} \n {gitlab_error} \n {bitbucket_error}'
+        f'Failed to validate token: {github_error} \n {gitlab_error} \n {bitbucket_error} \n {azure_devops_error}'
     )
 
     # Try Azure DevOps last

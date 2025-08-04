@@ -17,6 +17,7 @@ from openhands.integrations.service_types import (
     TaskType,
     UnknownException,
     User,
+    ResourceNotFoundError,
 )
 from openhands.server.types import AppMode
 from openhands.utils.import_utils import get_impl
@@ -131,6 +132,61 @@ class AzureDevOpsService(BaseGitService, GitService):
             'Content-Type': 'application/json',
         }
 
+    async def _get_cursorrules_url(self, repository: str) -> str:
+        """Get the URL for checking .cursorrules file."""
+        await self.loadOrganization_and_project()
+
+        if not self.organization or not self.project:
+            raise ResourceNotFoundError("Azure DevOps organization and project not configured.")
+
+        # Extract repository name from repository path
+        parts = repository.split("/")
+        if len(parts) >= 3:
+            repo_name = parts[2]
+        else:
+            raise ResourceNotFoundError(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
+
+        return f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}/items/.cursorrules"
+
+    async def _get_microagents_directory_url(
+        self, repository: str, microagents_path: str
+    ) -> str:
+        """Get the URL for checking microagents directory."""
+        await self.loadOrganization_and_project()
+
+        if not self.organization or not self.project:
+            raise ResourceNotFoundError("Azure DevOps organization and project not configured.")
+
+        # Extract repository name from repository path
+        parts = repository.split("/")
+        if len(parts) >= 3:
+            repo_name = parts[2]
+        else:
+            raise ResourceNotFoundError(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
+
+        return f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}/items"
+
+    def _get_microagents_directory_params(self, microagents_path: str) -> dict | None:
+        """Get parameters for the microagents directory request. Return None if no parameters needed."""
+        return {'path': microagents_path, 'recursionLevel': 'full'}
+
+    def _is_valid_microagent_file(self, item: dict) -> bool:
+        """Check if an item represents a valid microagent file."""
+        return (
+            item.get('isFolder', False) == False
+            and item.get('path', '').endswith('.md')
+            and not item.get('path', '').endswith('README.md')
+        )
+
+    def _get_file_name_from_item(self, item: dict) -> str:
+        """Extract file name from directory item."""
+        path = item.get('path', '')
+        return path.split('/')[-1] if path else ''
+
+    def _get_file_path_from_item(self, item: dict, microagents_path: str) -> str:
+        """Extract file path from directory item."""
+        return item.get('path', '')
+
     async def get_user(self) -> User:
         """
         Get the authenticated user's information from Azure DevOps
@@ -216,7 +272,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                 repo_id = hash(repo.get('id', '')) % (2**31)
                 repositories.append(
                     Repository(
-                        id=repo.get('id', ''),
+                        id=str(repo_id),
                         full_name=f"{self.organization}/{self.project}/{repo.get('name', '')}",
                         git_provider=ProviderType.AZURE_DEVOPS,
                         is_public=False,  # Azure DevOps repos are private by default
@@ -296,7 +352,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                             git_provider=ProviderType.AZURE_DEVOPS,
                             task_type=TaskType.MERGE_CONFLICTS,
                             repo=f"{self.organization}/{self.project}/{repo_name}",
-                            issue_number=str(pr.get("pullRequestId", 0)),
+                            issue_number=pr.get("pullRequestId", 0),
                             title=pr.get("title", ""),
                         )
                     )
@@ -322,7 +378,7 @@ class AzureDevOpsService(BaseGitService, GitService):
                                 git_provider=ProviderType.AZURE_DEVOPS,
                                 task_type=TaskType.FAILING_CHECKS,
                                 repo=f"{self.organization}/{self.project}/{repo_name}",
-                                issue_number=str(pr_id),
+                                issue_number=pr_id,
                                 title=pr.get("title", ""),
                             )
                         )
@@ -343,8 +399,8 @@ class AzureDevOpsService(BaseGitService, GitService):
 
             # Extract organization and project from base_domain or repository path
             parts = repository.split("/")
-            if len(parts) >= 3:
-                repo_name = parts[2]
+            if len(parts) >= 2:
+                repo_name = parts[-1]
             else:
                 raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
@@ -375,8 +431,8 @@ class AzureDevOpsService(BaseGitService, GitService):
 
             # Extract organization and project from base_domain or repository path
             parts = repository.split("/")
-            if len(parts) >= 3:
-                repo_name = parts[2]
+            if len(parts) >= 2:
+                repo_name = parts[-1]
             else:
                 raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
@@ -428,8 +484,8 @@ class AzureDevOpsService(BaseGitService, GitService):
 
             # Extract repository name from repository path
             parts = repository.split("/")
-            if len(parts) >= 3:
-                repo_name = parts[2]  # organization/project/repository -> repository
+            if len(parts) >= 2:
+                repo_name = parts[-1]  # organization/project/repository -> repository
             else:
                 raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
@@ -474,8 +530,8 @@ class AzureDevOpsService(BaseGitService, GitService):
 
             # Extract organization and project from base_domain or repository path
             parts = repository.split("/")
-            if len(parts) >= 3:
-                repo_name = parts[2]
+            if len(parts) >= 2:
+                repo_name = parts[-1]
             else:
                 raise UnknownException(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
 
