@@ -690,7 +690,7 @@ fi
                 GENERAL_TIMEOUT,
                 repo_name,
             )
-            return repository.git_provider == ProviderType.GITLAB
+            return repository.git_provider == ProviderType.GITLAB or repository.git_provider == ProviderType.AZURE_DEVOPS
         except Exception:
             # If we can't determine the provider, assume it's not GitLab
             # This is a safe fallback since we'll just use the default .openhands
