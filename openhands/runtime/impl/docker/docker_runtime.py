@@ -407,11 +407,9 @@ class DockerRuntime(ActionExecutionClient):
         else:
             device_requests = None
         try:
-            # Gera o hostname desejado, por exemplo:
-            host = f"{self.container_name}.tars.dbserver.com.br"
 
             # Gera as labels Traefik
-            labels = self.generate_traefik_labels(self.container_name, host)
+            labels = self.generate_traefik_labels(self.container_name)
 
             # Log das configurações para debug
             self.log('debug', f'Porta VSCode: {self._vscode_port}')
@@ -499,7 +497,7 @@ class DockerRuntime(ActionExecutionClient):
             f'attached to container: {self.container_name} {self._container_port} {self.api_url}',
         )
 
-    def generate_traefik_labels(self, container_name: str, host: str) -> dict[str, str]:
+    def generate_traefik_labels(self, container_name: str) -> dict[str, str]:
         base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
         labels = {
             "traefik.enable": "true",
@@ -683,16 +681,18 @@ class DockerRuntime(ActionExecutionClient):
                 return None
 
         base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
-        vscode_host = f"vscode-{self.container_name}.{base_domain}"
-        return f"https://{vscode_host}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}"
+        vscode_host = f"vscode-{self.container_name}.{base_domain}" if base_domain != 'localhost' else f"{base_domain}:{self._vscode_port}"
+        protocol = 'https' if base_domain != 'localhost' else 'http'
+        return f"{protocol}://{vscode_host}/?tkn={token}&folder={self.config.workspace_mount_path_in_sandbox}"
 
     @property
     def web_hosts(self) -> dict[str, int]:
         hosts: dict[str, int] = {}
         for i, port in enumerate(self._app_ports):
             base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
-            app_host = f"app{i+1}-{self.container_name}.{base_domain}"
-            hosts[f"https://{app_host}"] = port
+            app_host = f"app{i+1}-{self.container_name}.{base_domain}" if base_domain != 'localhost' else f"{base_domain}"
+            protocol = 'https' if base_domain != 'localhost' else 'http'
+            hosts[f"{protocol}://{app_host}"] = port
         return hosts
 
     def pause(self) -> None:
