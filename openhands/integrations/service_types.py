@@ -17,6 +17,7 @@ from openhands.server.types import AppMode
 class ProviderType(Enum):
     GITHUB = 'github'
     GITLAB = 'gitlab'
+    AZURE_DEVOPS = 'azure_devops'
     BITBUCKET = 'bitbucket'
 
 
@@ -50,6 +51,17 @@ class SuggestedTask(BaseModel):
                 'tokenEnvVar': 'GITHUB_TOKEN',
                 'ciSystem': 'GitHub Actions',
                 'ciProvider': 'GitHub',
+                'requestVerb': 'pull request',
+            }
+
+        elif self.git_provider == ProviderType.AZURE_DEVOPS:
+            return {
+                'requestType': 'Pull Request',
+                'requestTypeShort': 'PR',
+                'apiName': 'Azure DevOps API',
+                'tokenEnvVar': 'AZURE_DEVOPS_TOKEN',
+                'ciSystem': 'Azure Pipelines',
+                'ciProvider': 'Azure DevOps',
                 'requestVerb': 'pull request',
             }
         elif self.git_provider == ProviderType.GITLAB:
@@ -481,6 +493,12 @@ class GitService(Protocol):
 
     async def get_branches(self, repository: str) -> list[Branch]:
         """Get branches for a repository"""
+
+    async def create_pr(self, repository: str, source_branch: str, target_branch: str, title: str, body: str) -> str:
+        """Create a pull request"""
+
+    async def create_issue(self, repository: str, title: str, body: str) -> str:
+        """Create an issue"""
 
     async def get_microagents(self, repository: str) -> list[MicroagentResponse]:
         """Get microagents from a repository"""
