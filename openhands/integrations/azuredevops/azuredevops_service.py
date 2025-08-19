@@ -19,6 +19,7 @@ from openhands.integrations.service_types import (
     User,
     ResourceNotFoundError,
 )
+from openhands.microagent.types import MicroagentContentResponse, MicroagentResponse
 from openhands.server.types import AppMode
 from openhands.utils.import_utils import get_impl
 
@@ -254,37 +255,7 @@ class AzureDevOpsService(BaseGitService, GitService):
             raise UnknownException(f'Error getting user information: {str(e)}')
 
 
-    async def get_repositories(self, sort: str, app_mode: AppMode) -> list[Repository]:
-        """Get repositories for the authenticated user."""
-        try:
-            await self.loadOrganization_and_project()
 
-            # If organization and project are not set, we can't get repositories
-            if not self.organization or not self.project:
-                logger.warning("Azure DevOps organization and project not configured. Cannot get repositories.")
-                return []
-
-            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories"
-            data, _ = await self._make_request(url)
-
-            repositories = []
-            for repo in data.get("value", []):
-                repo_id = hash(repo.get('id', '')) % (2**31)
-                repositories.append(
-                    Repository(
-                        id=str(repo_id),
-                        full_name=f"{self.organization}/{self.project}/{repo.get('name', '')}",
-                        git_provider=ProviderType.AZURE_DEVOPS,
-                        is_public=False,  # Azure DevOps repos are private by default
-                        stargazers_count=None,
-                        pushed_at=None,
-                    )
-                )
-
-            return repositories
-        except Exception as e:
-            logger.warning(f"Error getting repositories: {e}")
-            return []
 
     async def search_repositories(
         self,
@@ -292,6 +263,7 @@ class AzureDevOpsService(BaseGitService, GitService):
         per_page: int,
         sort: str,
         order: str,
+        public: bool = False,
     ) -> list[Repository]:
         """Search for repositories."""
         try:
@@ -326,6 +298,168 @@ class AzureDevOpsService(BaseGitService, GitService):
         except Exception as e:
             logger.warning(f"Error searching repositories: {e}")
             return []
+
+    async def get_all_repositories(
+        self, sort: str, app_mode: AppMode
+    ) -> list[Repository]:
+        """Get all repositories for the authenticated user with pagination support."""
+        try:
+            await self.loadOrganization_and_project()
+
+            # If organization and project are not set, we can't get repositories
+            if not self.organization or not self.project:
+                logger.warning("Azure DevOps organization and project not configured. Cannot get repositories.")
+                return []
+
+            MAX_REPOS = 1000
+            all_repos: list[dict] = []
+            continuation_token = None
+
+            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories"
+
+            # Azure DevOps API supports pagination via continuationToken
+            while len(all_repos) < MAX_REPOS:
+                params = {
+                    "api-version": "7.1",
+                }
+
+                # Add continuation token if available
+                if continuation_token:
+                    params["continuationToken"] = continuation_token
+
+                data, headers = await self._make_request(url, params)
+
+                if not data or not data.get("value"):
+                    break
+
+                all_repos.extend(data.get("value", []))
+
+                # Check for continuation token in response headers
+                continuation_token = headers.get("x-ms-continuationtoken")
+                if not continuation_token:
+                    break
+
+            # Trim to MAX_REPOS if needed and convert to Repository objects
+            all_repos = all_repos[:MAX_REPOS]
+            repositories = []
+            for repo in all_repos:
+                repo_id = hash(repo.get('id', '')) % (2**31)
+                repositories.append(
+                    Repository(
+                        id=str(repo_id),
+                        full_name=f"{self.organization}/{self.project}/{repo.get('name', '')}",
+                        git_provider=ProviderType.AZURE_DEVOPS,
+                        is_public=False,  # Azure DevOps repos are private by default
+                        stargazers_count=None,
+                        pushed_at=None,
+                    )
+                )
+
+            return repositories
+        except Exception as e:
+            logger.warning(f"Error getting all repositories: {e}")
+            return []
+
+    async def get_paginated_repos(
+        self,
+        page: int,
+        per_page: int,
+        sort: str,
+        installation_id: str | None,
+        query: str | None = None,
+    ) -> list[Repository]:
+        """Get a page of repositories for the authenticated user."""
+        try:
+            await self.loadOrganization_and_project()
+
+            # If organization and project are not set, we can't get repositories
+            if not self.organization or not self.project:
+                logger.warning("Azure DevOps organization and project not configured. Cannot get repositories.")
+                return []
+
+            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories"
+            params = {
+                "api-version": "7.1",
+            }
+
+            # Azure DevOps doesn't support traditional pagination like GitHub/GitLab
+            # We'll get all repos and slice them to simulate pagination
+            data, _ = await self._make_request(url, params)
+
+            repositories = []
+            for repo in data.get("value", []):
+                repo_id = hash(repo.get('id', '')) % (2**31)
+                repositories.append(
+                    Repository(
+                        id=str(repo_id),
+                        full_name=f"{self.organization}/{self.project}/{repo.get('name', '')}",
+                        git_provider=ProviderType.AZURE_DEVOPS,
+                        is_public=False,  # Azure DevOps repos are private by default
+                        stargazers_count=None,
+                        pushed_at=None,
+                    )
+                )
+
+            # Apply filtering if query is provided
+            if query:
+                repositories = [repo for repo in repositories if query.lower() in repo.full_name.lower()]
+
+            # Simulate pagination by slicing the results
+            start_index = (page - 1) * per_page
+            end_index = start_index + per_page
+            return repositories[start_index:end_index]
+
+        except Exception as e:
+            logger.warning(f"Error getting paginated repositories: {e}")
+            return []
+
+    async def get_microagents(self, repository: str) -> list[MicroagentResponse]:
+        """Get microagents from a repository."""
+        # Use the generic implementation from BaseGitService
+        return await super().get_microagents(repository)
+
+    async def get_microagent_content(
+        self, repository: str, file_path: str
+    ) -> MicroagentContentResponse:
+        """Get content of a specific microagent file."""
+        try:
+            await self.loadOrganization_and_project()
+
+            if not self.organization or not self.project:
+                raise ResourceNotFoundError("Azure DevOps organization and project not configured.")
+
+            # Extract repository name from repository path
+            parts = repository.split("/")
+            if len(parts) >= 3:
+                repo_name = parts[2]
+            else:
+                raise ResourceNotFoundError(f"Invalid repository format: {repository}. Expected format: organization/project/repository")
+
+            # Get the repository ID first
+            repo_url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories?api-version=7.1"
+            repo_data, _ = await self._make_request(repo_url)
+            repo_id = None
+            for repo in repo_data.get("value", []):
+                if repo.get("name") == repo_name:
+                    repo_id = repo.get("id")
+                    break
+
+            if not repo_id:
+                raise ResourceNotFoundError(f"Repository {repo_name} not found")
+
+            # Get the file content
+            encoded_file_path = file_path.replace('/', '%2F')
+            file_url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_id}/items/{encoded_file_path}"
+            params = {"api-version": "7.1"}
+
+            response, _ = await self._make_request(file_url, params)
+
+            # Parse the content to extract triggers from frontmatter
+            return self._parse_microagent_content(response, file_path)
+
+        except Exception as e:
+            logger.warning(f"Error getting microagent content: {e}")
+            raise ResourceNotFoundError(f"Error getting microagent content: {e}")
 
     async def get_suggested_tasks(self) -> list[SuggestedTask]:
         """Get suggested tasks for the authenticated user across all repositories."""
