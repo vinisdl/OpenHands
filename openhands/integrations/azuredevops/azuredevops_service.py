@@ -279,21 +279,30 @@ class AzureDevOpsService(BaseGitService, GitService):
             url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories"
             data, _ = await self._make_request(url)
 
-            repositories = []
-            for repo in data.get("value", []):
-                if query.lower() in repo.get("name", "").lower():
-                    repo_id = hash(repo.get('id', '')) % (2**31)
-                    repositories.append(
-                        Repository(
-                            id=str(repo_id),
-                            full_name=f"{self.organization}/{self.project}/{repo.get('name', '')}",
-                            git_provider=ProviderType.AZURE_DEVOPS,
-                            is_public=False,  # Azure DevOps repos are private by default
-                            stargazers_count=None,
-                            pushed_at=None,
-                        )
-                    )
+            exact_matches = []
+            partial_matches = []
 
+            for repo in data.get("value", []):
+                repo_name = repo.get("name", "")
+                repo_name_lower = repo_name.lower()
+                query_lower = query.lower()
+
+                repo_id = hash(repo.get('id', '')) % (2**31)
+                repository = Repository(
+                    id=str(repo_id),
+                    full_name=f"{self.organization}/{self.project}/{repo_name}",
+                    git_provider=ProviderType.AZURE_DEVOPS,
+                    is_public=False,  # Azure DevOps repos are private by default
+                    stargazers_count=None,
+                    pushed_at=None,
+                )
+
+                if repo_name_lower == query_lower:
+                    exact_matches.append(repository)
+                elif query_lower in repo_name_lower:
+                    partial_matches.append(repository)
+
+            repositories = exact_matches + partial_matches
             return repositories[:per_page]
         except Exception as e:
             logger.warning(f"Error searching repositories: {e}")
