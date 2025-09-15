@@ -14,12 +14,8 @@ the Azure DevOps API.
 
 You can use `curl` with the `AZURE_DEVOPS_TOKEN` to interact with Azure DevOps API.
 ALWAYS use the Azure DevOps API for operations instead of a web browser.
-<<<<<<< Updated upstream
 ALWAYS use the create_azuredevops_pr tool to create a pr even
-ALWAYS use the comment_azure_on_pr tool to coment a pull request
-=======
-ALWAYS use the create_azuredevops_pr tool to create a pr
->>>>>>> Stashed changes
+ALWAYS use the comment_azure_on_pr tool to comment on a pull request using the project name and ID provided by create_azuredevops_pr or the input user
 
 When interacting with the Azure DevOps API, use the `AZURE_DEVOPS_TOKEN` authentication token in your HTTP calls.
 

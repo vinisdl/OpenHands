@@ -344,3 +344,52 @@ async def create_azuredevops_pr(
         raise ToolError(str(error))
 
     return response
+
+
+@mcp_server.tool()
+async def comment_azure_on_pr(
+    repo_name: Annotated[str, Field(description='Repositório Azure DevOps ({{owner}}/{{repo}})')],
+    pr_number: Annotated[int, Field(description='Número do Pull Request')],
+    comment: Annotated[str, Field(description='Texto do comentário')]
+) -> str:
+    """Adiciona um comentário em um Pull Request do Azure DevOps"""
+
+    logger.info('Chamando OpenHands MCP comment_on_pr')
+
+    request = get_http_request()
+    headers = request.headers
+
+    provider_tokens = await get_provider_tokens(request)
+    access_token = await get_access_token(request)
+    user_id = await get_user_id(request)
+
+    azuredevops_token = (
+        provider_tokens.get(ProviderType.AZURE_DEVOPS, ProviderToken())
+        if provider_tokens
+        else ProviderToken()
+    )
+
+    # Import aqui para evitar imports circulares
+    from openhands.integrations.azuredevops.azuredevops_service import AzureDevOpsServiceImpl
+
+    azuredevops_service = AzureDevOpsServiceImpl(
+        user_id=azuredevops_token.user_id,
+        external_auth_id=user_id,
+        external_auth_token=access_token,
+        token=azuredevops_token.token,
+        base_domain=azuredevops_token.host,
+    )
+
+    try:
+        response = await azuredevops_service.comment_on_pr(
+            repository=repo_name,
+            pr_number=pr_number,
+            comment=comment
+        )
+
+    except Exception as e:
+        error = f'Erro ao comentar no Pull Request do Azure DevOps: {e}'
+        logger.error(error)
+        raise ToolError(str(error))
+
+    return response

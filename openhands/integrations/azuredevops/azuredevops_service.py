@@ -692,6 +692,42 @@ class AzureDevOpsService(BaseGitService, GitService):
             logger.warning(f"Error creating issue: {e}")
             raise UnknownException(f"Error creating issue: {e}")
 
+
+    async def comment_on_pr(self, repository: str, pr_number: int, comment: str) -> str:
+        """Adiciona um comentário em um pull request"""
+        try:
+            await self.loadOrganization_and_project()
+
+            # Se organização e projeto não estiverem configurados, não podemos comentar
+            if not self.organization or not self.project:
+                raise UnknownException("Organização e projeto do Azure DevOps não configurados.")
+
+            # Extrai organização e projeto do caminho do repositório
+            parts = repository.split("/")
+            if len(parts) >= 2:
+                repo_name = parts[-1]
+            else:
+                raise UnknownException(f"Formato de repositório inválido: {repository}. Formato esperado: organization/project/repository")
+
+            # Cria o comentário no pull request
+            url = f"https://dev.azure.com/{self.organization}/{self.project}/_apis/git/repositories/{repo_name}/pullRequests/{pr_number}/threads?api-version=7.1"
+
+            payload = {
+                "comments": [
+                    {
+                        "content": comment
+                    }
+                ]
+            }
+
+            response, _ = await self._make_request(url, payload, RequestMethod.POST)
+            return response.get('url', '')
+
+        except Exception as e:
+            logger.warning(f"Erro ao comentar no pull request: {e}")
+            raise UnknownException(f"Erro ao comentar no pull request: {e}")
+
+
 class AzureDevOpsServiceImpl(AzureDevOpsService):
     """Implementation of the Azure DevOps service."""
     pass
