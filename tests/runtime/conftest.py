@@ -10,6 +10,7 @@ from pytest import TempPathFactory
 from openhands.core.config import MCPConfig, OpenHandsConfig, load_openhands_config
 from openhands.core.logger import openhands_logger as logger
 from openhands.events import EventStream
+from openhands.llm.llm_registry import LLMRegistry
 from openhands.runtime.base import Runtime
 from openhands.runtime.impl.cli.cli_runtime import CLIRuntime
 from openhands.runtime.impl.docker.docker_runtime import DockerRuntime
@@ -201,8 +202,8 @@ def base_container_image(request):
 
 
 def _load_runtime(
-    temp_dir,
-    runtime_cls,
+    temp_dir: str | None,
+    runtime_cls: str,
     run_as_openhands: bool = True,
     enable_auto_lint: bool = False,
     base_container_image: str | None = None,
@@ -231,7 +232,7 @@ def _load_runtime(
     if use_workspace:
         test_mount_path = os.path.join(config.workspace_base, 'rt')
     elif temp_dir is not None:
-        test_mount_path = temp_dir
+        test_mount_path = str(temp_dir)
     else:
         test_mount_path = None
     config.workspace_base = test_mount_path
@@ -260,16 +261,21 @@ def _load_runtime(
         config.mcp = override_mcp_config
 
     file_store = file_store = get_file_store(
-        config.file_store,
-        config.file_store_path,
-        config.file_store_web_hook_url,
-        config.file_store_web_hook_headers,
+        file_store_type=config.file_store,
+        file_store_path=config.file_store_path,
+        file_store_web_hook_url=config.file_store_web_hook_url,
+        file_store_web_hook_headers=config.file_store_web_hook_headers,
+        file_store_web_hook_batch=config.file_store_web_hook_batch,
     )
     event_stream = EventStream(sid, file_store)
+
+    # Create a LLMRegistry instance for the runtime
+    llm_registry = LLMRegistry(config=OpenHandsConfig())
 
     runtime = runtime_cls(
         config=config,
         event_stream=event_stream,
+        llm_registry=llm_registry,
         sid=sid,
         plugins=plugins,
     )

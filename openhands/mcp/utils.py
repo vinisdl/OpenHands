@@ -1,9 +1,11 @@
+import asyncio
 import json
 import shutil
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openhands.controller.agent import Agent
+    from openhands.memory.memory import Memory
 
 
 from mcp import McpError
@@ -20,14 +22,12 @@ from openhands.events.observation.mcp import MCPObservation
 from openhands.events.observation.observation import Observation
 from openhands.mcp.client import MCPClient
 from openhands.mcp.error_collector import mcp_error_collector
-from openhands.memory.memory import Memory
 from openhands.runtime.base import Runtime
 from openhands.runtime.impl.cli.cli_runtime import CLIRuntime
 
 
 def convert_mcp_clients_to_tools(mcp_clients: list[MCPClient] | None) -> list[dict]:
-    """
-    Converts a list of MCPClient instances to ChatCompletionToolParam format
+    """Converts a list of MCPClient instances to ChatCompletionToolParam format
     that can be used by CodeActAgent.
 
     Args:
@@ -129,6 +129,11 @@ async def create_mcp_clients(
         )
         client = MCPClient()
 
+        # Set server timeout for SHTTP servers
+        if isinstance(server, MCPSHTTPServerConfig) and server.timeout is not None:
+            client.server_timeout = float(server.timeout)
+            logger.debug(f'Set SHTTP server timeout to {server.timeout}s')
+
         try:
             await client.connect_http(server, conversation_id=conversation_id)
 
@@ -152,8 +157,7 @@ async def create_mcp_clients(
 async def fetch_mcp_tools_from_config(
     mcp_config: MCPConfig, conversation_id: str | None = None, use_stdio: bool = False
 ) -> list[dict]:
-    """
-    Retrieves the list of MCP tools from the MCP clients.
+    """Retrieves the list of MCP tools from the MCP clients.
 
     Args:
         mcp_config: The MCP configuration
@@ -206,8 +210,7 @@ async def fetch_mcp_tools_from_config(
 
 
 async def call_tool_mcp(mcp_clients: list[MCPClient], action: MCPAction) -> Observation:
-    """
-    Call a tool on an MCP server and return the observation.
+    """Call a tool on an MCP server and return the observation.
 
     Args:
         mcp_clients: The list of MCP clients to execute the action on
@@ -256,6 +259,22 @@ async def call_tool_mcp(mcp_clients: list[MCPClient], action: MCPAction) -> Obse
             name=action.name,
             arguments=action.arguments,
         )
+    except asyncio.TimeoutError:
+        # Handle timeout errors specifically
+        timeout_val = getattr(matching_client, 'server_timeout', 'unknown')
+        logger.error(f'MCP tool {action.name} timed out after {timeout_val}s')
+        error_content = json.dumps(
+            {
+                'isError': True,
+                'error': f'Tool "{action.name}" timed out after {timeout_val} seconds',
+                'content': [],
+            }
+        )
+        return MCPObservation(
+            content=error_content,
+            name=action.name,
+            arguments=action.arguments,
+        )
     except McpError as e:
         # Handle MCP errors by returning an error observation instead of raising
         logger.error(f'MCP error when calling tool {action.name}: {e}')
@@ -270,9 +289,7 @@ async def call_tool_mcp(mcp_clients: list[MCPClient], action: MCPAction) -> Obse
 async def add_mcp_tools_to_agent(
     agent: 'Agent', runtime: Runtime, memory: 'Memory'
 ) -> MCPConfig:
-    """
-    Add MCP tools to an agent.
-    """
+    """Add MCP tools to an agent."""
     import sys
 
     # Skip MCP tools on Windows
