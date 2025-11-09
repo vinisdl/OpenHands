@@ -1,0 +1,235 @@
+# Pipeline do Azure DevOps para build de imagens Docker do OpenHands
+# Este pipeline executa o script containers/build.sh para construir as imagens
+# Configurado para usar Azure Container Registry (ACR)
+
+trigger:
+  branches:
+    include:
+      - azure-devops-integration
+
+pr:
+  branches:
+    include:
+      - azure-devops-integration
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Variáveis do variable group 'smart-squad-doc-base':
+  # - containerRegistry: dbpeus2ssquadacr01.azurecr.io
+  # - dockerRegistryServiceConnection: dbpeus2ssquadacr01-service-connection
+  - group: smart-squad-doc-base
+
+
+stages:
+  - stage: BuildOpenHands
+    displayName: 'Build OpenHands Image'
+    jobs:
+      - job: BuildApp
+        displayName: 'Build and Push OpenHands App'
+        steps:
+          - checkout: self
+            fetchDepth: 0 # Full history para git rev-parse funcionar
+
+          - script: |
+              sudo apt-get update
+              sudo apt-get install -y jq git
+            displayName: 'Install dependencies'
+
+          - task: Docker@2
+            displayName: 'Login to Azure Container Registry'
+            inputs:
+              command: login
+              containerRegistry: $(dockerRegistryServiceConnection)
+
+          - script: |
+              # Configurar Docker Buildx para multi-platform builds
+              docker buildx version
+              docker buildx create --use --name multiarch-builder --driver docker-container || true
+              docker buildx inspect --bootstrap
+            displayName: 'Setup Docker Buildx'
+
+          - script: |
+              # Configurar variáveis de ambiente baseadas no Azure DevOps
+              # Determinar REF_NAME baseado no tipo de trigger
+              if [[ "$(Build.SourceBranch)" == refs/tags/* ]]; then
+                # Para tags, remover o prefixo refs/tags/
+                REF_NAME=$(echo "$(Build.SourceBranch)" | sed 's|refs/tags/||')
+              elif [[ "$(Build.SourceBranch)" == refs/heads/* ]]; then
+                # Para branches, remover o prefixo refs/heads/
+                REF_NAME=$(echo "$(Build.SourceBranch)" | sed 's|refs/heads/||')
+              elif [[ "$(Build.SourceBranch)" == refs/pull/* ]]; then
+                # Para PRs, usar o número do PR
+                REF_NAME="pr-$(Build.SourceBranchName)"
+              else
+                REF_NAME=$(Build.SourceBranchName)
+              fi
+
+              # Usar variáveis do Azure DevOps (não GitHub)
+              # IMPORTANTE: DOCKER_REGISTRY deve ser exportado antes de executar build.sh
+              # para sobrescrever o valor do config.sh
+              export RELEVANT_SHA=$(Build.SourceVersion)
+              export GITHUB_REF_NAME="$REF_NAME"
+
+              # Garantir que DOCKER_REGISTRY use o ACR do variable group
+              ACR_REGISTRY="$(containerRegistry)"
+              export DOCKER_REGISTRY="$ACR_REGISTRY"
+
+              echo "=== Variáveis de Ambiente ==="
+              echo "RELEVANT_SHA: $RELEVANT_SHA"
+              echo "GITHUB_REF_NAME: $GITHUB_REF_NAME"
+              echo "DOCKER_REGISTRY: $DOCKER_REGISTRY"
+              echo "CONTAINER_REGISTRY: $ACR_REGISTRY"
+              echo "Build.SourceBranch: $(Build.SourceBranch)"
+              echo "Build.SourceVersion: $(Build.SourceVersion)"
+              echo "=============================="
+
+              # Verificar se DOCKER_REGISTRY está exportado corretamente
+              if [[ -z "$DOCKER_REGISTRY" ]]; then
+                echo "ERRO: DOCKER_REGISTRY não está definido!"
+                exit 1
+              fi
+
+              if [[ "$DOCKER_REGISTRY" == "ghcr.io" ]]; then
+                echo "ERRO: DOCKER_REGISTRY ainda está como ghcr.io! Deveria ser $ACR_REGISTRY"
+                exit 1
+              fi
+
+              # Tornar o script executável
+              chmod +x containers/build.sh
+
+              # Executar o build usando apenas o build.sh
+              # O DOCKER_REGISTRY exportado acima sobrescreve o valor do config.sh
+              # Não usar -o para usar o DOCKER_ORG padrão do config.sh
+              ./containers/build.sh \
+                -i openhands \
+                --push
+            displayName: 'Build and Push OpenHands Image'
+
+          - script: |
+              # Verificar se a imagem foi criada
+              docker buildx imagetools inspect $(containerRegistry)/all-hands-ai/openhands:latest || echo "Image latest not found"
+            displayName: 'Verify Image'
+            condition: succeeded()
+
+  - stage: BuildRuntime
+    displayName: 'Build Runtime Image'
+    dependsOn: BuildOpenHands
+    condition: succeeded()
+    jobs:
+      - job: BuildRuntime
+        displayName: 'Build and Push Runtime Image'
+        steps:
+          - checkout: self
+            fetchDepth: 0
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python 3.12'
+            inputs:
+              versionSpec: '3.12'
+
+          - script: |
+              sudo apt-get update
+              sudo apt-get install -y jq git build-essential
+            displayName: 'Install dependencies'
+
+          - task: Docker@2
+            displayName: 'Login to Azure Container Registry'
+            inputs:
+              command: login
+              containerRegistry: $(dockerRegistryServiceConnection)
+
+          - script: |
+              # Instalar QEMU para suporte multi-plataforma (necessário para builds arm64)
+              docker run --rm --privileged tonistiigi/binfmt:latest --install all
+            displayName: 'Setup QEMU for multi-platform builds'
+
+          - script: |
+              # Configurar Docker Buildx
+              docker buildx create --use --name multiarch-builder --driver docker-container || true
+              docker buildx inspect --bootstrap
+            displayName: 'Setup Docker Buildx'
+
+          - script: |
+              # Instalar Poetry se necessário
+              python3 -m pip install poetry --break-system-packages
+
+              # Instalar dependências do projeto
+              poetry install --no-root
+            displayName: 'Install Poetry and dependencies'
+
+          - script: |
+              # Gerar Dockerfile do runtime dinamicamente
+              # O runtime precisa gerar o Dockerfile antes do build
+              # Usando nikolaik/python-nodejs:python3.12-nodejs22 como base image
+              poetry run python3 -m openhands.runtime.utils.runtime_build \
+                --base_image nikolaik/python-nodejs:python3.12-nodejs22 \
+                --build_folder containers/runtime \
+                --force_rebuild
+            displayName: 'Generate Runtime Dockerfile'
+
+          - script: |
+              # Configurar variáveis de ambiente
+              if [[ "$(Build.SourceBranch)" == refs/tags/* ]]; then
+                REF_NAME=$(echo "$(Build.SourceBranch)" | sed 's|refs/tags/||')
+              elif [[ "$(Build.SourceBranch)" == refs/heads/* ]]; then
+                REF_NAME=$(echo "$(Build.SourceBranch)" | sed 's|refs/heads/||')
+              elif [[ "$(Build.SourceBranch)" == refs/pull/* ]]; then
+                REF_NAME="pr-$(Build.SourceBranchName)"
+              else
+                REF_NAME=$(Build.SourceBranchName)
+              fi
+
+              # IMPORTANTE: DOCKER_REGISTRY deve ser exportado antes de executar build.sh
+              # para sobrescrever o valor do config.sh
+              export RELEVANT_SHA=$(Build.SourceVersion)
+              export GITHUB_REF_NAME="$REF_NAME"
+
+              # Garantir que DOCKER_REGISTRY use o ACR do variable group
+              ACR_REGISTRY="$(containerRegistry)"
+              export DOCKER_REGISTRY="$ACR_REGISTRY"
+
+              echo "=== Variáveis de Ambiente ==="
+              echo "RELEVANT_SHA: $RELEVANT_SHA"
+              echo "GITHUB_REF_NAME: $GITHUB_REF_NAME"
+              echo "DOCKER_REGISTRY: $DOCKER_REGISTRY"
+              echo "CONTAINER_REGISTRY: $ACR_REGISTRY"
+              echo "=============================="
+
+              # Verificar se DOCKER_REGISTRY está exportado corretamente
+              if [[ -z "$DOCKER_REGISTRY" ]]; then
+                echo "ERRO: DOCKER_REGISTRY não está definido!"
+                exit 1
+              fi
+
+              if [[ "$DOCKER_REGISTRY" == "ghcr.io" ]]; then
+                echo "ERRO: DOCKER_REGISTRY ainda está como ghcr.io! Deveria ser $ACR_REGISTRY"
+                exit 1
+              fi
+
+              # Verificar se o Dockerfile foi gerado
+              if [[ ! -f "containers/runtime/Dockerfile" ]]; then
+                echo "ERRO: Dockerfile do runtime não foi gerado!"
+                exit 1
+              fi
+
+              chmod +x containers/build.sh
+
+              # Executar o build do runtime usando apenas o build.sh
+              # O DOCKER_REGISTRY exportado acima sobrescreve o valor do config.sh
+              # Não usar -o para usar o DOCKER_ORG padrão do config.sh
+              #
+              # IMPORTANTE: Construir apenas para linux/amd64 para evitar:
+              # 1. Problemas com emulação QEMU durante compilação
+              # 2. "No space left on device" - builds multi-plataforma usam muito espaço
+              # 3. Falhas de compilação de pacotes Python durante emulação
+              export DOCKER_PLATFORM=linux/amd64
+
+              ./containers/build.sh \
+                -i runtime \
+                --push
+            displayName: 'Build and Push Runtime Image'
+            env:
+              DOCKER_PLATFORM: linux/amd64
+
