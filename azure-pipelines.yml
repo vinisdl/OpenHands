@@ -20,6 +20,7 @@ variables:
   # - containerRegistry: dbpeus2ssquadacr01.azurecr.io
   # - dockerRegistryServiceConnection: dbpeus2ssquadacr01-service-connection
   - group: smart-squad-doc-base
+  - group: smart-squad-openhands-hml
 
 
 stages:
@@ -102,10 +103,23 @@ stages:
               # Executar o build usando apenas o build.sh
               # O DOCKER_REGISTRY exportado acima sobrescreve o valor do config.sh
               # Não usar -o para usar o DOCKER_ORG padrão do config.sh
+              #
+              # Variáveis do frontend (VITE_*) podem ser definidas no variable group
+              # e serão passadas automaticamente como build args pelo build.sh
               ./containers/build.sh \
                 -i openhands \
                 --push
             displayName: 'Build and Push OpenHands Image'
+            env:
+              # Variáveis do frontend (VITE_*) - podem vir do variable group
+              # Se não definidas no variable group, usarão os valores padrão do Dockerfile
+              VITE_BACKEND_HOST: $(VITE_BACKEND_HOST)
+              VITE_BACKEND_BASE_URL: $(VITE_BACKEND_BASE_URL)
+              VITE_USE_TLS: $(VITE_USE_TLS)
+              VITE_FRONTEND_PORT: $(VITE_FRONTEND_PORT)
+              VITE_INSECURE_SKIP_VERIFY: $(VITE_INSECURE_SKIP_VERIFY)
+              VITE_MOCK_API: $(VITE_MOCK_API)
+              VITE_MOCK_SAAS: $(VITE_MOCK_SAAS)
 
           - script: |
               # Verificar se a imagem foi criada

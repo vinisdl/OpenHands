@@ -165,9 +165,35 @@ fi
 
 echo "Building for platform(s): $platform"
 
+# Build args para variáveis do frontend (VITE_*)
+build_args="--build-arg OPENHANDS_BUILD_VERSION=\"$OPENHANDS_BUILD_VERSION\""
+
+# Adicionar build args do frontend se estiverem definidas como variáveis de ambiente
+if [[ -n "${VITE_BACKEND_HOST:-}" ]]; then
+  build_args+=" --build-arg VITE_BACKEND_HOST=\"$VITE_BACKEND_HOST\""
+fi
+if [[ -n "${VITE_BACKEND_BASE_URL:-}" ]]; then
+  build_args+=" --build-arg VITE_BACKEND_BASE_URL=\"$VITE_BACKEND_BASE_URL\""
+fi
+if [[ -n "${VITE_USE_TLS:-}" ]]; then
+  build_args+=" --build-arg VITE_USE_TLS=\"$VITE_USE_TLS\""
+fi
+if [[ -n "${VITE_FRONTEND_PORT:-}" ]]; then
+  build_args+=" --build-arg VITE_FRONTEND_PORT=\"$VITE_FRONTEND_PORT\""
+fi
+if [[ -n "${VITE_INSECURE_SKIP_VERIFY:-}" ]]; then
+  build_args+=" --build-arg VITE_INSECURE_SKIP_VERIFY=\"$VITE_INSECURE_SKIP_VERIFY\""
+fi
+if [[ -n "${VITE_MOCK_API:-}" ]]; then
+  build_args+=" --build-arg VITE_MOCK_API=\"$VITE_MOCK_API\""
+fi
+if [[ -n "${VITE_MOCK_SAAS:-}" ]]; then
+  build_args+=" --build-arg VITE_MOCK_SAAS=\"$VITE_MOCK_SAAS\""
+fi
+
 docker buildx build \
   $args \
-  --build-arg OPENHANDS_BUILD_VERSION="$OPENHANDS_BUILD_VERSION" \
+  $build_args \
   --cache-from=type=registry,ref=$DOCKER_REPOSITORY:$cache_tag \
   --cache-from=type=registry,ref=$DOCKER_REPOSITORY:$cache_tag_base-main \
   --platform $platform \
