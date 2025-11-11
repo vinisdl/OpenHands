@@ -386,7 +386,9 @@ def finalize_config(cfg: OpenHandsConfig) -> None:
             parts = mount.split(':')
             if len(parts) >= 2 and parts[1] == '/workspace':
                 workspace_mount_found = True
-                host_path = os.path.abspath(parts[0])
+                # Normalize the path and ensure it's absolute
+                # This handles Windows paths correctly
+                host_path = os.path.abspath(os.path.normpath(parts[0].strip()))
 
                 # Set the workspace_mount_path and workspace_mount_path_in_sandbox
                 cfg.workspace_mount_path = host_path

@@ -279,14 +279,16 @@ class DockerRuntime(ActionExecutionClient):
                     # Named volume syntax:
                     #   volume:<name>   (explicit)
                     #   <name>          (implicit when not starting with '/')
-                    raw_host_part = parts[0]
+                    raw_host_part = parts[0].strip()
 
                     if raw_host_part.startswith('volume:'):
                         host_path = raw_host_part.split('volume:', 1)[1]
                     elif not os.path.isabs(raw_host_part):
                         host_path = raw_host_part  # treat as named volume
                     else:
-                        host_path = os.path.abspath(raw_host_part)
+                        # Normalize the path and ensure it's absolute
+                        # This handles Windows paths correctly
+                        host_path = os.path.abspath(os.path.normpath(raw_host_part))
                     container_path = parts[1]
                     # Default mode is 'rw' if not specified
                     mount_mode = parts[2] if len(parts) > 2 else 'rw'

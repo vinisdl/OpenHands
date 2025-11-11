@@ -10,6 +10,7 @@ from openhands.integrations.service_types import (
     BaseGitService,
     Branch,
     GitService,
+    PaginatedBranchesResponse,
     ProviderType,
     Repository,
     RequestMethod,
@@ -264,6 +265,7 @@ class AzureDevOpsService(BaseGitService, GitService):
         sort: str,
         order: str,
         public: bool = False,
+        app_mode: AppMode = AppMode.OSS,
     ) -> list[Repository]:
         """Search for repositories."""
         try:
@@ -605,6 +607,65 @@ class AzureDevOpsService(BaseGitService, GitService):
             return branches
         except Exception as e:
             logger.warning(f"Error getting branches: {e}")
+            return []
+
+    async def get_paginated_branches(
+        self, repository: str, page: int = 1, per_page: int = 30
+    ) -> PaginatedBranchesResponse:
+        """Get branches for a repository with pagination"""
+        try:
+            # Get all branches first
+            all_branches = await self.get_branches(repository)
+
+            # Calculate pagination
+            total_count = len(all_branches)
+            start_index = (page - 1) * per_page
+            end_index = start_index + per_page
+
+            # Slice the branches for the current page
+            paginated_branches = all_branches[start_index:end_index]
+
+            # Check if there's a next page
+            has_next_page = end_index < total_count
+
+            return PaginatedBranchesResponse(
+                branches=paginated_branches,
+                has_next_page=has_next_page,
+                current_page=page,
+                per_page=per_page,
+                total_count=total_count,
+            )
+        except Exception as e:
+            logger.warning(f"Error getting paginated branches: {e}")
+            # Return empty response on error
+            return PaginatedBranchesResponse(
+                branches=[],
+                has_next_page=False,
+                current_page=page,
+                per_page=per_page,
+                total_count=0,
+            )
+
+    async def search_branches(
+        self, repository: str, query: str, per_page: int = 30
+    ) -> list[Branch]:
+        """Search branches by name. Azure DevOps API doesn't support search, so we filter locally."""
+        try:
+            # Get all branches first
+            all_branches = await self.get_branches(repository)
+
+            # Filter branches by query (case-insensitive)
+            query_lower = query.lower()
+            filtered_branches = [
+                branch
+                for branch in all_branches
+                if query_lower in branch.name.lower()
+            ]
+
+            # Limit results to per_page
+            return filtered_branches[:per_page]
+        except Exception as e:
+            logger.warning(f"Error searching branches: {e}")
             return []
 
     async def create_pr(self, repository: str, source_branch: str, target_branch: str, title: str, body: str) -> str:
