@@ -17,6 +17,9 @@ from openhands.core.logger import openhands_logger as logger
 from openhands.events.action.action import Action
 from openhands.events.action.commands import CmdRunAction
 from openhands.events.stream import EventStream
+from openhands.integrations.azuredevops.azuredevops_service import (
+    AzureDevOpsServiceImpl,
+)
 from openhands.integrations.bitbucket.bitbucket_service import BitBucketServiceImpl
 from openhands.integrations.github.github_service import GithubServiceImpl
 from openhands.integrations.gitlab.gitlab_service import GitLabServiceImpl
@@ -61,7 +64,11 @@ class ProviderToken(BaseModel):
                 token_str = ''  # type: ignore[unreachable]
             user_id = token_value.get('user_id')
             host = token_value.get('host')
-            return cls(token=SecretStr(token_str), user_id=user_id, host=host)
+            return cls(
+                token=SecretStr(token_str),
+                user_id=user_id,
+                host=host,
+            )
 
         else:
             raise ValueError('Unsupported Provider token type')
@@ -108,6 +115,7 @@ class ProviderHandler:
         ProviderType.GITHUB: 'github.com',
         ProviderType.GITLAB: 'gitlab.com',
         ProviderType.BITBUCKET: 'bitbucket.org',
+        ProviderType.AZURE_DEVOPS: 'dev.azure.com',
     }
 
     def __init__(
@@ -127,6 +135,7 @@ class ProviderHandler:
         self.service_class_map: dict[ProviderType, type[GitService]] = {
             ProviderType.GITHUB: GithubServiceImpl,
             ProviderType.GITLAB: GitLabServiceImpl,
+            ProviderType.AZURE_DEVOPS: AzureDevOpsServiceImpl,
             ProviderType.BITBUCKET: BitBucketServiceImpl,
         }
 
@@ -150,7 +159,9 @@ class ProviderHandler:
         """Helper method to instantiate a service for a given provider"""
         token = self.provider_tokens[provider]
         service_class = self.service_class_map[provider]
-        return service_class(
+
+        # Create service with common parameters
+        service = service_class(
             user_id=token.user_id,
             external_auth_id=self.external_auth_id,
             external_auth_token=self.external_auth_token,
@@ -158,6 +169,12 @@ class ProviderHandler:
             external_token_manager=self.external_token_manager,
             base_domain=token.host,
         )
+
+        # Set base domain for token validation
+        if token.host and hasattr(service, 'base_domain'):
+            service.base_domain = token.host
+
+        return service
 
     async def get_user(self) -> User:
         """Get user information from the first available provider"""
@@ -259,6 +276,24 @@ class ProviderHandler:
                 logger.warning(f'Error fetching repos from {provider}: {e}')
 
         return tasks
+
+    async def create_pr(self, repository: str, source_branch: str, target_branch: str, title: str, body: str) -> str:
+        """Create a pull request"""
+        for provider in self.provider_tokens:
+            try:
+                service = self.get_service(provider)
+                return await service.create_pr(repository, source_branch, target_branch, title, body)
+            except Exception as e:
+                logger.warning(f'Error creating PR from {provider}: {e}')
+
+    async def create_issue(self, repository: str, title: str, body: str) -> str:
+        """Create an issue"""
+        for provider in self.provider_tokens:
+            try:
+                service = self.get_service(provider)
+                return await service.create_issue(repository, title, body)
+            except Exception as e:
+                logger.warning(f'Error creating issue from {provider}: {e}')
 
     async def search_branches(
         self,
@@ -677,6 +712,16 @@ class ProviderHandler:
                     else:
                         # Access token format: use x-token-auth
                         remote_url = f'https://x-token-auth:{token_value}@{domain}/{repo_name}.git'
+                elif provider == ProviderType.AZURE_DEVOPS:
+                    # For Azure DevOps, the format is different
+                    # repo_name should be in format: organization/project/repository
+                    parts = repo_name.split('/')
+                    if len(parts) >= 3:
+                        organization, project, repository = parts[0], parts[1], parts[2]
+                        remote_url = f"https://{token_value}@dev.azure.com/{organization}/{project}/_git/{repository}"
+                    else:
+                        # Fallback to standard format
+                        remote_url = f'https://{token_value}@{domain}/{repo_name}.git'
                 else:
                     # GitHub
                     remote_url = f'https://{token_value}@{domain}/{repo_name}.git'

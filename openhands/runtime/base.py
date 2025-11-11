@@ -676,6 +676,77 @@ fi
 
         return loaded_microagents
 
+    async def _get_authenticated_git_url(
+        self, repo_name: str, git_provider_tokens: PROVIDER_TOKEN_TYPE | None
+    ) -> str:
+        """Get an authenticated git URL for a repository.
+
+        Args:
+            repo_path: Repository name (owner/repo)
+
+        Returns:
+            Authenticated git URL if credentials are available, otherwise regular HTTPS URL
+        """
+
+        try:
+            provider_handler = ProviderHandler(
+                git_provider_tokens or MappingProxyType({})
+            )
+            repository = await provider_handler.verify_repo_provider(repo_name)
+        except AuthenticationError:
+            raise Exception('Git provider authentication issue when getting remote URL')
+
+        provider = repository.git_provider
+        repo_name = repository.full_name
+
+        provider_domains = {
+            ProviderType.GITHUB: 'github.com',
+            ProviderType.GITLAB: 'gitlab.com',
+            ProviderType.BITBUCKET: 'bitbucket.org',
+            ProviderType.AZURE_DEVOPS: 'dev.azure.com',
+        }
+
+        domain = provider_domains[provider]
+
+        # If git_provider_tokens is provided, use the host from the token if available
+        if git_provider_tokens and provider in git_provider_tokens:
+            domain = git_provider_tokens[provider].host or domain
+
+        # Try to use token if available, otherwise use public URL
+        if git_provider_tokens and provider in git_provider_tokens:
+            git_token = git_provider_tokens[provider].token
+            if git_token:
+                token_value = git_token.get_secret_value()
+                if provider == ProviderType.GITLAB:
+                    remote_url = (
+                        f'https://oauth2:{token_value}@{domain}/{repo_name}.git'
+                    )
+                elif provider == ProviderType.BITBUCKET:
+                    # For Bitbucket, handle username:app_password format
+                    if ':' in token_value:
+                        # App token format: username:app_password
+                        remote_url = f'https://{token_value}@{domain}/{repo_name}.git'
+                    else:
+                        # Access token format: use x-token-auth
+                        remote_url = f'https://x-token-auth:{token_value}@{domain}/{repo_name}.git'
+                elif provider == ProviderType.AZURE_DEVOPS:
+                    parts = repo_name.strip("/").split("/")
+                    if len(parts) != 3:
+                        raise ValueError("Azure devops: repo_name deve ter 3 partes: org/project/repo")
+                    organization, project, repository = parts
+                    remote_repo_url = f"https://{git_token.get_secret_value()}@dev.azure.com/{organization}/{project}/_git/{repository}"
+                    print(f"remote_repo_url: {remote_repo_url}")
+                else:
+                    # GitHub
+                    remote_url = f'https://{token_value}@{domain}/{repo_name}.git'
+            else:
+                remote_url = f'https://{domain}/{repo_name}.git'
+        else:
+            remote_url = f'https://{domain}/{repo_name}.git'
+
+        return remote_url
+
+
     def _is_gitlab_repository(self, repo_name: str) -> bool:
         """Check if a repository is hosted on GitLab.
 
@@ -694,7 +765,7 @@ fi
                 GENERAL_TIMEOUT,
                 repo_name,
             )
-            return repository.git_provider == ProviderType.GITLAB
+            return repository.git_provider == ProviderType.GITLAB or repository.git_provider == ProviderType.AZURE_DEVOPS
         except Exception:
             # If we can't determine the provider, assume it's not GitLab
             # This is a safe fallback since we'll just use the default .openhands

@@ -8,10 +8,11 @@ from fastmcp.server.dependencies import get_http_request
 from pydantic import Field
 
 from openhands.core.logger import openhands_logger as logger
+from openhands.integrations.azuredevops.azuredevops_service import AzureDevOpsServiceImpl
 from openhands.integrations.bitbucket.bitbucket_service import BitBucketServiceImpl
 from openhands.integrations.github.github_service import GithubServiceImpl
 from openhands.integrations.gitlab.gitlab_service import GitLabServiceImpl
-from openhands.integrations.provider import ProviderToken
+from openhands.integrations.provider import ProviderHandler, ProviderToken
 from openhands.integrations.service_types import GitService, ProviderType
 from openhands.server.shared import ConversationStoreImpl, config, server_config
 from openhands.server.types import AppMode
@@ -82,7 +83,7 @@ async def save_pr_metadata(
 @mcp_server.tool()
 async def create_pr(
     repo_name: Annotated[
-        str, Field(description='GitHub repository ({{owner}}/{{repo}})')
+        str, Field(description='GitHub/Azure DevOps repository ({{owner}}/{{repo}})')
     ],
     source_branch: Annotated[str, Field(description='Source branch on repo')],
     target_branch: Annotated[str, Field(description='Target branch on repo')],
@@ -96,7 +97,7 @@ async def create_pr(
         ),
     ] = None,
 ) -> str:
-    """Open a PR in GitHub"""
+    """Open a PR in GitHub/Azure DevOps"""
     logger.info('Calling OpenHands MCP create_pr')
 
     request = get_http_request()
@@ -107,27 +108,25 @@ async def create_pr(
     access_token = await get_access_token(request)
     user_id = await get_user_id(request)
 
-    github_token = (
-        provider_tokens.get(ProviderType.GITHUB, ProviderToken())
-        if provider_tokens
-        else ProviderToken()
-    )
 
-    github_service = GithubServiceImpl(
-        user_id=github_token.user_id,
-        external_auth_id=user_id,
-        external_auth_token=access_token,
-        token=github_token.token,
-        base_domain=github_token.host,
-    )
+    provider_handler = ProviderHandler(provider_tokens)
+
 
     try:
-        body = await get_conversation_link(github_service, conversation_id, body or '')
+        # Get the appropriate service for the repository
+        try:
+            repo_details = await provider_handler.verify_repo_provider(repo_name)
+            service = provider_handler.get_service(repo_details.git_provider)
+            body = await get_conversation_link(service, conversation_id, body or '')
+        except Exception as e:
+            logger.warning(f'Failed to get service for repository {repo_name}: {e}')
+            # Fallback to original body if we can't determine the service
+            pass
     except Exception as e:
         logger.warning(f'Failed to append conversation link: {e}')
 
     try:
-        response = await github_service.create_pr(
+        response = await provider_handler.create_pr(
             repo_name=repo_name,
             source_branch=source_branch,
             target_branch=target_branch,
@@ -136,6 +135,8 @@ async def create_pr(
             draft=draft,
             labels=labels,
         )
+
+        print(f'Response: {response}')
 
         if conversation_id:
             await save_pr_metadata(user_id, conversation_id, response)
@@ -282,6 +283,125 @@ async def create_bitbucket_pr(
 
     except Exception as e:
         error = f'Error creating pull request: {e}'
+        logger.error(error)
+        raise ToolError(str(error))
+
+    return response
+
+
+@mcp_server.tool()
+async def create_azuredevops_pr(
+    repo_name: Annotated[
+        str, Field(description='Azure DevOps repository (organization/project/repository)')
+    ],
+    source_branch: Annotated[str, Field(description='Source branch on repo')],
+    target_branch: Annotated[str, Field(description='Target branch on repo')],
+    title: Annotated[
+        str,
+        Field(
+            description='PR Title. Start title with `DRAFT:` or `WIP:` if applicable.'
+        ),
+    ],
+    description: Annotated[str | None, Field(description='PR description')],
+    is_draft: Annotated[bool, Field(description='Whether PR should be created as draft')] = True,
+) -> str:
+    """Open a PR in Azure DevOps"""
+
+    logger.info('Calling OpenHands MCP create_azuredevops_pr')
+
+    request = get_http_request()
+    headers = request.headers
+    conversation_id = headers.get('X-OpenHands-ServerConversation-ID', None)
+
+    provider_tokens = await get_provider_tokens(request)
+    access_token = await get_access_token(request)
+    user_id = await get_user_id(request)
+
+    azuredevops_token = (
+        provider_tokens.get(ProviderType.AZURE_DEVOPS, ProviderToken())
+        if provider_tokens
+        else ProviderToken()
+    )
+
+    # Import here to avoid circular imports
+    from openhands.integrations.azuredevops.azuredevops_service import AzureDevOpsServiceImpl
+
+    azuredevops_service = AzureDevOpsServiceImpl(
+        user_id=azuredevops_token.user_id,
+        external_auth_id=user_id,
+        external_auth_token=access_token,
+        token=azuredevops_token.token,
+        base_domain=azuredevops_token.host,
+    )
+
+    try:
+        description = await get_conversation_link(azuredevops_service, conversation_id, description or '')
+    except Exception as e:
+        logger.warning(f'Failed to append conversation link: {e}')
+
+    try:
+        response = await azuredevops_service.create_pr(
+            repository=repo_name,
+            source_branch=source_branch,
+            target_branch=target_branch,
+            title=title,
+            body=description,
+        )
+
+        if conversation_id and user_id:
+            await save_pr_metadata(user_id, conversation_id, response)
+
+    except Exception as e:
+        error = f'Error creating Azure DevOps pull request: {e}'
+        logger.error(error)
+        raise ToolError(str(error))
+
+    return response
+
+
+@mcp_server.tool()
+async def comment_azure_on_pr(
+    repo_name: Annotated[str, Field(description='Repositório Azure DevOps ({{owner}}/{{repo}})')],
+    pr_number: Annotated[int, Field(description='Número do Pull Request')],
+    comment: Annotated[str, Field(description='Texto do comentário')]
+) -> str:
+    """Adiciona um comentário em um Pull Request do Azure DevOps"""
+
+    logger.info('Chamando OpenHands MCP comment_on_pr')
+
+    request = get_http_request()
+    headers = request.headers
+
+    provider_tokens = await get_provider_tokens(request)
+    access_token = await get_access_token(request)
+    user_id = await get_user_id(request)
+
+    azuredevops_token = (
+        provider_tokens.get(ProviderType.AZURE_DEVOPS, ProviderToken())
+        if provider_tokens
+        else ProviderToken()
+    )
+
+    # Import aqui para evitar imports circulares
+    from openhands.integrations.azuredevops.azuredevops_service import AzureDevOpsServiceImpl
+
+    azuredevops_service = AzureDevOpsServiceImpl(
+        user_id=azuredevops_token.user_id,
+        external_auth_id=user_id,
+        external_auth_token=access_token,
+        token=azuredevops_token.token,
+        base_domain=azuredevops_token.host,
+    )
+
+    try:
+        response = await azuredevops_service.comment_on_pr(
+            repository=repo_name,
+            pr_number=pr_number,
+            comment=comment
+        )
+
+    except Exception as e:
+        error = f'Erro ao comentar no Pull Request do Azure DevOps: {e}'
         logger.error(error)
         raise ToolError(str(error))
 
