@@ -15,12 +15,21 @@ pr:
 pool:
   vmImage: 'ubuntu-latest'
 
+parameters:
+  - name: environment
+    displayName: 'Ambiente'
+    type: string
+    default: 'hml'
+    values:
+      - hml
+      - prd
+
 variables:
-  # Variáveis do variable group 'smart-squad-doc-base':
-  # - containerRegistry: dbpeus2ssquadacr01.azurecr.io
-  # - dockerRegistryServiceConnection: dbpeus2ssquadacr01-service-connection
   - group: smart-squad-doc-base
-  - group: smart-squad-openhands-hml
+  - ${{ if eq(parameters.environment, 'hml') }}:
+    - group: smart-squad-openhands-hml
+  - ${{ if eq(parameters.environment, 'prd') }}:
+    - group: smart-squad-openhands-prd
 
 
 stages:
@@ -71,7 +80,7 @@ stages:
               # IMPORTANTE: DOCKER_REGISTRY deve ser exportado antes de executar build.sh
               # para sobrescrever o valor do config.sh
               export RELEVANT_SHA=$(Build.SourceVersion)
-              export GITHUB_REF_NAME="$REF_NAME"
+              export GITHUB_REF_NAME="${{ parameters.environment }}"
 
               # Garantir que DOCKER_REGISTRY use o ACR do variable group
               ACR_REGISTRY="$(containerRegistry)"
@@ -82,9 +91,21 @@ stages:
               echo "GITHUB_REF_NAME: $GITHUB_REF_NAME"
               echo "DOCKER_REGISTRY: $DOCKER_REGISTRY"
               echo "CONTAINER_REGISTRY: $ACR_REGISTRY"
+              echo "ENVIRONMENT: ${{ parameters.environment }}"
               echo "Build.SourceBranch: $(Build.SourceBranch)"
               echo "Build.SourceVersion: $(Build.SourceVersion)"
               echo "=============================="
+              echo ""
+              echo "=== Variáveis VITE (Frontend) ==="
+              echo "VITE_BACKEND_HOST: $VITE_BACKEND_HOST"
+              echo "VITE_BACKEND_BASE_URL: $VITE_BACKEND_BASE_URL"
+              echo "VITE_USE_TLS: $VITE_USE_TLS"
+              echo "VITE_FRONTEND_PORT: $VITE_FRONTEND_PORT"
+              echo "VITE_INSECURE_SKIP_VERIFY: $VITE_INSECURE_SKIP_VERIFY"
+              echo "VITE_MOCK_API: $VITE_MOCK_API"
+              echo "VITE_MOCK_SAAS: $VITE_MOCK_SAAS"
+              echo "================================"
+              echo ""
 
               # Verificar se DOCKER_REGISTRY está exportado corretamente
               if [[ -z "$DOCKER_REGISTRY" ]]; then
