@@ -23,6 +23,8 @@ parameters:
     values:
       - hml
       - prd
+      - easy
+      - autoexperts
 
 variables:
   - group: smart-squad-doc-base
@@ -30,6 +32,11 @@ variables:
     - group: smart-squad-openhands-hml
   - ${{ if eq(parameters.environment, 'prd') }}:
     - group: smart-squad-openhands-prd
+  - ${{ if eq(parameters.environment, 'easy') }}:
+    - group: smart-squad-openhands-easy
+  - ${{ if eq(parameters.environment, 'autoexperts') }}:
+    - group: smart-squad-openhands-autoexperts
+
 
 
 stages:
