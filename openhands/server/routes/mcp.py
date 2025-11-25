@@ -356,3 +356,57 @@ async def create_azure_devops_pr(
         raise ToolError(str(error))
 
     return response
+
+@mcp_server.tool()
+async def comment_azure_on_pr(
+    repo_name: Annotated[str, Field(description='Repositório Azure DevOps no formato organization/project/repo (ex: db-tecnologia/Smart Squad/DBFlix)')],
+    pr_number: Annotated[int, Field(description='Número do Pull Request')],
+    comment: Annotated[str, Field(description='Texto completo do comentário a ser adicionado ao PR. IMPORTANTE: Este comentário deve ser preparado ANTES de chamar esta função. Analise o PR, prepare o comentário completo com análise, pontos positivos e sugestões, e então chame esta função com o comentário finalizado.')]
+) -> str:
+    """Adiciona um comentário em um Pull Request do Azure DevOps.
+
+    IMPORTANTE: Esta função requer que o comentário já esteja completamente preparado.
+    Antes de chamar esta função:
+    1. Analise o PR (faça diff, leia arquivos alterados, etc.)
+    2. Prepare o comentário completo com análise, pontos positivos e sugestões
+    3. Somente então chame esta função com o comentário finalizado
+
+    Não chame esta função sem ter o parâmetro 'comment' completamente preparado.
+    """
+
+    request = get_http_request()
+    provider_tokens = await get_provider_tokens(request)
+    access_token = await get_access_token(request)
+    user_id = await get_user_id(request)
+
+    azure_devops_token = (
+        provider_tokens.get(ProviderType.AZURE_DEVOPS, ProviderToken())
+        if provider_tokens
+        else ProviderToken()
+    )
+
+    azure_devops_service = AzureDevOpsServiceImpl(
+        user_id=azure_devops_token.user_id,
+        external_auth_id=user_id,
+        external_auth_token=access_token,
+        token=azure_devops_token.token,
+        base_domain=azure_devops_token.host,
+    )
+
+
+    try:
+        response = await azure_devops_service.add_pr_thread(
+            repository=repo_name,
+            pr_number=pr_number,
+            comment_text=comment,
+            status='active'
+        )
+
+        # Retornar uma mensagem de sucesso em string
+        thread_id = response.get('id', 'N/A')
+        return f'Comentário adicionado com sucesso no Pull Request #{pr_number}. Thread ID: {thread_id}'
+
+    except Exception as e:
+        error = f'Erro ao comentar no Pull Request do Azure DevOps: {e}'
+        logger.error(error)
+        raise ToolError(str(error))

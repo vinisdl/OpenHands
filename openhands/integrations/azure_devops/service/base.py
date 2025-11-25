@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from pydantic import SecretStr
 
@@ -65,4 +65,15 @@ class AzureDevOpsMixinBase(BaseGitService, HTTPClient):
         Returns:
             URL-encoded string with spaces and special characters properly encoded
         """
+        # Decode first to avoid double encoding (e.g., %20 -> %2520)
+        # This handles cases where the component might already be partially encoded
+        try:
+            decoded = unquote(component)
+            # Only re-encode if decoding changed the string (meaning it was encoded)
+            if decoded != component:
+                component = decoded
+        except Exception:
+            # If unquote fails, use original component
+            pass
+
         return quote(component, safe='')

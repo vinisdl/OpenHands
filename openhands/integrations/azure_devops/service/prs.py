@@ -45,11 +45,11 @@ class AzureDevOpsPRsMixin(AzureDevOpsMixinBase):
         org, project, repo = self._parse_repository(repository)
 
         # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
+        # Note: base_url already includes organization, so we don't need to add it again
         project_enc = self._encode_url_component(project)
         repo_enc = self._encode_url_component(repo)
 
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads?api-version=7.1'
+        url = f'{self.base_url}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads?api-version=7.1'
 
         # Create thread payload with a comment
         # Reference: https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-threads/create
@@ -97,11 +97,11 @@ class AzureDevOpsPRsMixin(AzureDevOpsMixinBase):
         org, project, repo = self._parse_repository(repository)
 
         # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
+        # Note: base_url already includes organization, so we don't need to add it again
         project_enc = self._encode_url_component(project)
         repo_enc = self._encode_url_component(repo)
 
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads/{thread_id}/comments?api-version=7.1'
+        url = f'{self.base_url}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads/{thread_id}/comments?api-version=7.1'
 
         payload = {
             'content': comment_text,
@@ -136,11 +136,11 @@ class AzureDevOpsPRsMixin(AzureDevOpsMixinBase):
         org, project, repo = self._parse_repository(repository)
 
         # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
+        # Note: base_url already includes organization, so we don't need to add it again
         project_enc = self._encode_url_component(project)
         repo_enc = self._encode_url_component(repo)
 
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads?api-version=7.1'
+        url = f'{self.base_url}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads?api-version=7.1'
 
         response, _ = await self._make_request(url)
 
@@ -281,11 +281,11 @@ class AzureDevOpsPRsMixin(AzureDevOpsMixinBase):
         org, project, repo = self._parse_repository(repository)
 
         # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
+        # Note: base_url already includes organization, so we don't need to add it again
         project_enc = self._encode_url_component(project)
         repo_enc = self._encode_url_component(repo)
 
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}?api-version=7.1'
+        url = f'{self.base_url}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}?api-version=7.1'
 
         response, _ = await self._make_request(url)
         return response
