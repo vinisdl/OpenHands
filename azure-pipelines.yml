@@ -1,0 +1,156 @@
+# Pipeline do Azure DevOps para build de imagens Docker do OpenHands
+# Este pipeline executa o script containers/build.sh para construir as imagens
+# Configurado para usar Azure Container Registry (ACR)
+
+trigger:
+  branches:
+    include:
+      - main-db
+
+pr:
+  branches:
+    include:
+      - main-db
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+parameters:
+  - name: environment
+    displayName: 'Ambiente'
+    type: string
+    default: 'hml'
+    values:
+      - hml
+      - prd
+      - easy
+      - autoexperts
+
+variables:
+  - group: smart-squad-doc-base
+  - ${{ if eq(parameters.environment, 'hml') }}:
+    - group: smart-squad-openhands-hml
+  - ${{ if eq(parameters.environment, 'prd') }}:
+    - group: smart-squad-openhands-prd
+  - ${{ if eq(parameters.environment, 'easy') }}:
+    - group: smart-squad-openhands-easy
+  - ${{ if eq(parameters.environment, 'autoexperts') }}:
+    - group: smart-squad-openhands-autoexperts
+
+
+
+stages:
+  - stage: BuildOpenHands
+    displayName: 'Build OpenHands Image'
+    jobs:
+      - job: BuildApp
+        displayName: 'Build and Push OpenHands App'
+        steps:
+          - checkout: self
+            fetchDepth: 0 # Full history para git rev-parse funcionar
+
+          - script: |
+              sudo apt-get update
+              sudo apt-get install -y jq git
+            displayName: 'Install dependencies'
+
+          - task: Docker@2
+            displayName: 'Login to Azure Container Registry'
+            inputs:
+              command: login
+              containerRegistry: $(dockerRegistryServiceConnection)
+
+          - script: |
+              # Configurar Docker Buildx para multi-platform builds
+              docker buildx version
+              docker buildx create --use --name multiarch-builder --driver docker-container || true
+              docker buildx inspect --bootstrap
+            displayName: 'Setup Docker Buildx'
+
+          - script: |
+              # Configurar variáveis de ambiente baseadas no Azure DevOps
+              # Determinar REF_NAME baseado no tipo de trigger
+              if [[ "$(Build.SourceBranch)" == refs/tags/* ]]; then
+                # Para tags, remover o prefixo refs/tags/
+                REF_NAME=$(echo "$(Build.SourceBranch)" | sed 's|refs/tags/||')
+              elif [[ "$(Build.SourceBranch)" == refs/heads/* ]]; then
+                # Para branches, remover o prefixo refs/heads/
+                REF_NAME=$(echo "$(Build.SourceBranch)" | sed 's|refs/heads/||')
+              elif [[ "$(Build.SourceBranch)" == refs/pull/* ]]; then
+                # Para PRs, usar o número do PR
+                REF_NAME="pr-$(Build.SourceBranchName)"
+              else
+                REF_NAME=$(Build.SourceBranchName)
+              fi
+
+              # Usar variáveis do Azure DevOps (não GitHub)
+              # IMPORTANTE: DOCKER_REGISTRY deve ser exportado antes de executar build.sh
+              # para sobrescrever o valor do config.sh
+              export RELEVANT_SHA=$(Build.SourceVersion)
+              export GITHUB_REF_NAME="${{ parameters.environment }}"
+
+              # Garantir que DOCKER_REGISTRY use o ACR do variable group
+              ACR_REGISTRY="$(containerRegistry)"
+              export DOCKER_REGISTRY="$ACR_REGISTRY"
+
+              echo "=== Variáveis de Ambiente ==="
+              echo "RELEVANT_SHA: $RELEVANT_SHA"
+              echo "GITHUB_REF_NAME: $GITHUB_REF_NAME"
+              echo "DOCKER_REGISTRY: $DOCKER_REGISTRY"
+              echo "CONTAINER_REGISTRY: $ACR_REGISTRY"
+              echo "ENVIRONMENT: ${{ parameters.environment }}"
+              echo "Build.SourceBranch: $(Build.SourceBranch)"
+              echo "Build.SourceVersion: $(Build.SourceVersion)"
+              echo "=============================="
+              echo ""
+              echo "=== Variáveis VITE (Frontend) ==="
+              echo "VITE_BACKEND_HOST: $VITE_BACKEND_HOST"
+              echo "VITE_BACKEND_BASE_URL: $VITE_BACKEND_BASE_URL"
+              echo "VITE_USE_TLS: $VITE_USE_TLS"
+              echo "VITE_FRONTEND_PORT: $VITE_FRONTEND_PORT"
+              echo "VITE_INSECURE_SKIP_VERIFY: $VITE_INSECURE_SKIP_VERIFY"
+              echo "VITE_MOCK_API: $VITE_MOCK_API"
+              echo "VITE_MOCK_SAAS: $VITE_MOCK_SAAS"
+              echo "================================"
+              echo ""
+
+              # Verificar se DOCKER_REGISTRY está exportado corretamente
+              if [[ -z "$DOCKER_REGISTRY" ]]; then
+                echo "ERRO: DOCKER_REGISTRY não está definido!"
+                exit 1
+              fi
+
+              if [[ "$DOCKER_REGISTRY" == "ghcr.io" ]]; then
+                echo "ERRO: DOCKER_REGISTRY ainda está como ghcr.io! Deveria ser $ACR_REGISTRY"
+                exit 1
+              fi
+
+              # Tornar o script executável
+              chmod +x containers/build.sh
+
+              # Executar o build usando apenas o build.sh
+              # O DOCKER_REGISTRY exportado acima sobrescreve o valor do config.sh
+              # Não usar -o para usar o DOCKER_ORG padrão do config.sh
+              #
+              # Variáveis do frontend (VITE_*) podem ser definidas no variable group
+              # e serão passadas automaticamente como build args pelo build.sh
+              ./containers/build.sh \
+                -i openhands \
+                --push
+            displayName: 'Build and Push OpenHands Image'
+            env:
+              # Variáveis do frontend (VITE_*) - podem vir do variable group
+              # Se não definidas no variable group, usarão os valores padrão do Dockerfile
+              VITE_BACKEND_HOST: $(VITE_BACKEND_HOST)
+              VITE_BACKEND_BASE_URL: $(VITE_BACKEND_BASE_URL)
+              VITE_USE_TLS: $(VITE_USE_TLS)
+              VITE_FRONTEND_PORT: $(VITE_FRONTEND_PORT)
+              VITE_INSECURE_SKIP_VERIFY: $(VITE_INSECURE_SKIP_VERIFY)
+              VITE_MOCK_API: $(VITE_MOCK_API)
+              VITE_MOCK_SAAS: $(VITE_MOCK_SAAS)
+
+          - script: |
+              # Verificar se a imagem foi criada
+              docker buildx imagetools inspect $(containerRegistry)/all-hands-ai/openhands:latest || echo "Image latest not found"
+            displayName: 'Verify Image'
+            condition: succeeded()
