@@ -132,6 +132,7 @@ SUPPORTS_STOP_WORDS_FALSE_PATTERNS: list[str] = [
     'grok-code-fast-1',
     # DeepSeek R1 family
     'deepseek-r1-0528*',
+    'azure/gpt-5*',
 ]
 
 
