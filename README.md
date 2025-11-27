@@ -45,6 +45,28 @@ with e.g. Claude Code or Codex. You can power it with Claude, GPT, or any other 
 
 [Check out the docs](https://docs.openhands.dev/openhands/usage/run-openhands/cli-mode) or [view the source](https://github.com/OpenHands/OpenHands-CLI)
 
+### Using Azure GPT-5.x with LiteLLM (Responses API)
+OpenHands can talk to Azure-hosted GPT-5.x deployments through LiteLLM's Responses API. Configure your `config.toml` (or
+environment variables) with:
+
+```toml
+[llm]
+model = "azure/responses/gpt-5.1"  # or azure/responses/<your-deployment-name>
+# drop_params = true               # Let LiteLLM drop unsupported params
+# reasoning_effort = "low"         # Optional; only send if your Azure deployment allows it
+```
+
+And set the Azure environment variables expected by LiteLLM:
+
+```bash
+export AZURE_API_BASE="https://<your-resource>.openai.azure.com/"
+export AZURE_API_VERSION="2025-04-01-preview"
+export AZURE_API_KEY="<your-key>"
+```
+
+OpenHands automatically avoids unsupported parameters (like `stop` or `max_tokens`) for Azure Responses models so requests stay
+compatible with the Azure OpenAI GPT-5.x API.
+
 ### OpenHands Local GUI
 Use the Local GUI for running agents on your laptop. It comes with a REST API and a single-page React application.
 The experience will be familiar to anyone who has used Devin or Jules.

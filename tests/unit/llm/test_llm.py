@@ -223,6 +223,69 @@ def test_completion_kwargs_passed_to_litellm(mock_litellm_completion):
     llm.completion(messages=[{'role': 'system', 'content': 'Test message'}])
 
 
+@patch('openhands.llm.llm.litellm_completion')
+def test_azure_responses_filters_unsupported_params(mock_litellm_completion):
+    config = LLMConfig(model='azure/responses/gpt-5.1', api_key='test_key')
+    llm = LLM(config, service_id='test-service')
+
+    def side_effect(*args, **kwargs):
+        assert kwargs['model'] == 'azure/responses/gpt-5.1'
+        assert 'stop' not in kwargs
+        assert 'max_tokens' not in kwargs
+        assert 'presence_penalty' not in kwargs
+        assert 'frequency_penalty' not in kwargs
+        assert 'reasoning_effort' not in kwargs
+        return {'choices': [{'message': {'content': 'Mocked response'}}]}
+
+    mock_litellm_completion.side_effect = side_effect
+
+    llm.completion(
+        messages=[{'role': 'system', 'content': 'Test message'}],
+        stop=['STOP'],
+        max_tokens=5,
+        presence_penalty=0.5,
+        frequency_penalty=0.5,
+        reasoning_effort='medium',
+    )
+
+
+@patch('openhands.llm.llm.litellm_completion')
+def test_azure_responses_respects_reasoning_effort(mock_litellm_completion):
+    config = LLMConfig(
+        model='azure/responses/gpt-5.1',
+        api_key='test_key',
+        reasoning_effort='low',
+    )
+    llm = LLM(config, service_id='test-service')
+
+    def side_effect(*args, **kwargs):
+        assert kwargs['model'] == 'azure/responses/gpt-5.1'
+        assert kwargs.get('reasoning_effort') == 'low'
+        return {'choices': [{'message': {'content': 'Mocked response'}}]}
+
+    mock_litellm_completion.side_effect = side_effect
+
+    llm.completion(messages=[{'role': 'system', 'content': 'Test message'}])
+
+
+@patch('openhands.llm.llm.litellm_completion')
+def test_standard_model_keeps_supported_params(mock_litellm_completion):
+    config = LLMConfig(model='gpt-4o', api_key='test_key')
+    llm = LLM(config, service_id='test-service')
+
+    def side_effect(*args, **kwargs):
+        assert kwargs.get('stop') == ['STOP']
+        assert kwargs.get('temperature') == config.temperature
+        return {'choices': [{'message': {'content': 'Mocked response'}}]}
+
+    mock_litellm_completion.side_effect = side_effect
+
+    llm.completion(
+        messages=[{'role': 'system', 'content': 'Test message'}],
+        stop=['STOP'],
+    )
+
+
 def test_llm_init_with_metrics():
     config = LLMConfig(model='gpt-4o', api_key='test_key')
     metrics = Metrics()

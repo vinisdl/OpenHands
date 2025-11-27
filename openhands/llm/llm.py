@@ -162,7 +162,7 @@ class LLM(RetryMixin, DebugMixin):
             )  # temperature is not supported for reasoning models
             kwargs.pop('top_p')  # reasoning model like o3 doesn't support top_p
         # Azure issue: https://github.com/OpenHands/OpenHands/issues/6777
-        if self.config.model.startswith('azure'):
+        if self.config.model.startswith('azure') and not self._is_azure_responses_model():
             kwargs['max_tokens'] = self.config.max_output_tokens
             kwargs.pop('max_completion_tokens')
 
@@ -318,6 +318,9 @@ class LLM(RetryMixin, DebugMixin):
             # if we're not using litellm proxy, remove the extra_body
             if 'litellm_proxy' not in self.config.model:
                 kwargs.pop('extra_body', None)
+
+            if self._is_azure_responses_model():
+                self._sanitize_kwargs_for_azure_responses(kwargs)
 
             # Record start time for latency measurement
             start_time = time.time()
@@ -743,6 +746,22 @@ class LLM(RetryMixin, DebugMixin):
             if self.config.model.startswith('ollama'):
                 return True
         return False
+
+    def _is_azure_responses_model(self) -> bool:
+        return self.config.model.lower().startswith('azure/responses/')
+
+    def _sanitize_kwargs_for_azure_responses(self, kwargs: dict[str, Any]) -> None:
+        unsupported_params = {
+            'stop',
+            'max_tokens',
+            'presence_penalty',
+            'frequency_penalty',
+        }
+        for param in unsupported_params:
+            kwargs.pop(param, None)
+
+        if self.config.reasoning_effort is None:
+            kwargs.pop('reasoning_effort', None)
 
     def _completion_cost(self, response: Any) -> float:
         """Calculate completion cost and update metrics with running total.

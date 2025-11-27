@@ -140,6 +140,18 @@ api_key = ""
 # Model to use. (For Headless / CLI only -  In Web this is overridden by Session Init)
 model = "gpt-4o"
 
+# Example: Using Azure OpenAI GPT-5.x via LiteLLM Responses API
+# model = "azure/responses/gpt-5.1"  # or azure/responses/<your-deployment-name>
+#
+# # Azure environment variables expected by LiteLLM
+# # AZURE_API_BASE="https://<your-resource>.openai.azure.com/"
+# # AZURE_API_VERSION="2025-04-01-preview"
+# # AZURE_API_KEY="<your-key>"
+#
+# # Optional LiteLLM tweaks
+# # drop_params = true           # Let LiteLLM drop unsupported params
+# # reasoning_effort = "medium"  # Only set if your Azure deployment supports it
+
 # Number of retries to attempt when an operation fails with the LLM.
 # Increase this value to allow more attempts before giving up
 #num_retries = 8

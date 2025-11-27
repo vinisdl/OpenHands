@@ -133,6 +133,7 @@ SUPPORTS_STOP_WORDS_FALSE_PATTERNS: list[str] = [
     # DeepSeek R1 family
     'deepseek-r1-0528*',
     'azure/gpt-5*',
+    'azure/responses/gpt-5*',
 ]
 
 
