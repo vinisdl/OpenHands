@@ -241,31 +241,79 @@ class AzureDevOpsPRsMixin(AzureDevOpsMixinBase):
         project = parts[1]
         repo = parts[2]
 
+        # Clean branch names (remove leading/trailing whitespace)
+        source_branch = source_branch.strip()
+        target_branch = target_branch.strip()
+
+        # Get repository ID (GUID) for more reliable API calls
+        # This is more reliable than using the repository name
+        # Note: This method is available because AzureDevOpsServiceImpl inherits from AzureDevOpsReposMixin
+        repo_id = None
+        try:
+            if hasattr(self, 'get_repository_details_from_repo_name'):
+                repo_details = await self.get_repository_details_from_repo_name(repo_name)
+                repo_id = repo_details.id
+        except Exception as e:
+            logger.warning(
+                f'Failed to get repository ID for {repo_name}, using name instead: {e}'
+            )
+
         # URL-encode components to handle spaces and special characters
         org_enc = self._encode_url_component(org)
         project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo)
 
-        url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests?api-version=7.1'
+        # Use repository ID if available, otherwise use name
+        if repo_id:
+            url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_id}/pullRequests?api-version=7.1'
+        else:
+            repo_enc = self._encode_url_component(repo)
+            url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullRequests?api-version=7.1'
 
         # Set default body if none provided
         if not body:
             body = f'Merging changes from {source_branch} into {target_branch}'
 
+        # Ensure sourceRefName and targetRefName don't already have refs/heads/ prefix
+        source_ref = (
+            source_branch
+            if source_branch.startswith('refs/')
+            else f'refs/heads/{source_branch}'
+        )
+        target_ref = (
+            target_branch
+            if target_branch.startswith('refs/')
+            else f'refs/heads/{target_branch}'
+        )
+
         payload = {
-            'sourceRefName': f'refs/heads/{source_branch}',
-            'targetRefName': f'refs/heads/{target_branch}',
+            'sourceRefName': source_ref,
+            'targetRefName': target_ref,
             'title': title,
-            'description': body,
+            'description': body or '',
             'isDraft': draft,
         }
 
-        response, _ = await self._make_request(
-            url=url, params=payload, method=RequestMethod.POST
+        logger.debug(
+            f'Creating PR in {repo_name}: {source_branch} -> {target_branch} with payload: {payload}'
         )
+
+        try:
+            response, _ = await self._make_request(
+                url=url, params=payload, method=RequestMethod.POST
+            )
+        except Exception as e:
+            logger.error(
+                f'Failed to create PR in {repo_name}: {e}. URL: {url}, Payload: {payload}'
+            )
+            raise
 
         # Return the web URL of the created PR
         pr_id = response.get('pullRequestId')
+        if not pr_id:
+            logger.error(f'PR created but no pullRequestId in response: {response}')
+            raise ValueError(f'Failed to get PR ID from response: {response}')
+
+        repo_enc = self._encode_url_component(repo)
         return f'https://dev.azure.com/{org_enc}/{project_enc}/_git/{repo_enc}/pullrequest/{pr_id}'
 
     async def get_pr_details(self, repository: str, pr_number: int) -> dict:

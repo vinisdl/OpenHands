@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
+from openhands.core.logger import openhands_logger as logger
 from openhands.integrations.azure_devops.service.branches import (
     AzureDevOpsBranchesMixin,
 )
@@ -222,9 +223,22 @@ class AzureDevOpsServiceImpl(
                 return response.json(), headers
 
         except httpx.HTTPStatusError as e:
-            raise self.handle_http_status_error(e)
+            # Log detailed error information for debugging
+            error_details = {}
+            try:
+                if e.response.content:
+                    error_details = e.response.json()
+                    logger.error(
+                        f'Azure DevOps API error {e.response.status_code}: {error_details}'
+                    )
+            except Exception:
+                # If we can't parse the error response, log the raw content
+                logger.error(
+                    f'Azure DevOps API error {e.response.status_code}: {e.response.text[:500]}'
+                )
+            raise HTTPClient.handle_http_status_error(self, e)
         except httpx.HTTPError as e:
-            raise self.handle_http_error(e)
+            raise HTTPClient.handle_http_error(self, e)
 
     def _parse_repository(self, repository: str) -> tuple[str, str, str]:
         """Parse repository string into organization, project, and repo name.
