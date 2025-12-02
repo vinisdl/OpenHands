@@ -606,16 +606,14 @@ export const shouldIncludeRepository = (
  * @returns The query string for searching OpenHands repositories
  */
 export const getOpenHandsQuery = (provider: Provider | null): string => {
-  const providerRepositorySuffix = {
+  const providerRepositorySuffix: Record<string, string> = {
     gitlab: "openhands-config",
     azure_devops: "openhands-config",
     default: ".openhands",
   } as const;
 
   return provider && provider in providerRepositorySuffix
-    ? providerRepositorySuffix[
-        provider as keyof typeof providerRepositorySuffix
-      ]
+    ? providerRepositorySuffix[provider]
     : providerRepositorySuffix.default;
 };
 
