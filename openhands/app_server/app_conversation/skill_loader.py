@@ -165,7 +165,7 @@ async def _is_azure_devops_repository(
 
 async def _determine_org_repo_path(
     selected_repository: str, user_context: UserContext
-) -> tuple[str, str]:
+) -> tuple[str, str | None, str, bool, str | None]:
     """Determine the organization repository path and organization name.
 
     Args:
@@ -173,14 +173,17 @@ async def _determine_org_repo_path(
         user_context: UserContext to access provider handler
 
     Returns:
-        Tuple of (org_repo_path, org_name) where:
-        - org_repo_path: Full path to org-level config repo
+        Tuple of (project_repo_path, org_repo_path, org_name, is_azure_devops, project_name) where:
+        - project_repo_path: Full path to project-level config repo (for Azure DevOps) or org-level config repo (for others)
+        - org_repo_path: Full path to org-level config repo (only for Azure DevOps, None otherwise)
         - org_name: Organization name extracted from repository
+        - is_azure_devops: True if repository is Azure DevOps
+        - project_name: Project name for Azure DevOps, None otherwise
 
     Examples:
-        - GitHub/Bitbucket: ('owner/.openhands', 'owner')
-        - GitLab: ('owner/openhands-config', 'owner')
-        - Azure DevOps: ('org/openhands-config/openhands-config', 'org')
+        - GitHub/Bitbucket: ('owner/.openhands', None, 'owner', False, None)
+        - GitLab: ('owner/openhands-config', None, 'owner', False, None)
+        - Azure DevOps: ('org/project/openhands-config', 'org/openhands-config/openhands-config', 'org', True, 'project')
     """
     repo_parts = selected_repository.split('/')
 
@@ -195,21 +198,27 @@ async def _determine_org_repo_path(
     # GitHub/GitLab/Bitbucket format: owner/repo (2 parts) - extract owner (first part)
     if is_azure_devops and len(repo_parts) >= 3:
         org_name = repo_parts[0]  # Get org from org/project/repo
+        project_name = repo_parts[1]  # Get project from org/project/repo
     else:
         org_name = repo_parts[-2]  # Get owner from owner/repo
+        project_name = None
 
     # For GitLab and Azure DevOps, use openhands-config (since .openhands is not a valid repo name)
     # For other providers, use .openhands
     if is_gitlab:
-        org_openhands_repo = f'{org_name}/openhands-config'
+        project_repo_path = f'{org_name}/openhands-config'
+        org_repo_path = None
     elif is_azure_devops:
         # Azure DevOps format: org/project/repo
-        # For org-level config, use: org/openhands-config/openhands-config
-        org_openhands_repo = f'{org_name}/openhands-config/openhands-config'
+        # Project-level config: org/project/openhands-config
+        project_repo_path = f'{org_name}/{project_name}/openhands-config'
+        # Org-level config: org/openhands-config/openhands-config
+        org_repo_path = f'{org_name}/openhands-config/openhands-config'
     else:
-        org_openhands_repo = f'{org_name}/.openhands'
+        project_repo_path = f'{org_name}/.openhands'
+        org_repo_path = None
 
-    return org_openhands_repo, org_name
+    return project_repo_path, org_repo_path, org_name, is_azure_devops, project_name
 
 
 async def _read_file_from_workspace(
@@ -566,6 +575,68 @@ async def _cleanup_org_repository(
     await workspace.execute_command(cleanup_cmd, working_dir, timeout=10.0)
 
 
+async def _try_load_repo_skills(
+    workspace: AsyncRemoteWorkspace,
+    repo_path: str,
+    org_name: str,
+    working_dir: str,
+    user_context: UserContext,
+    level: str,
+) -> list[Skill]:
+    """Try to load skills from a repository path.
+
+    Args:
+        workspace: AsyncRemoteWorkspace to execute commands
+        repo_path: Repository path to try
+        org_name: Organization name for directory naming
+        working_dir: Working directory for command execution
+        user_context: UserContext to access authentication
+        level: Level description for logging (e.g., 'organization-level', 'project-level')
+
+    Returns:
+        List of Skill objects if successful, empty list otherwise
+    """
+    _logger.info(f'Checking for {level} skills at {repo_path}')
+
+    # Get authenticated URL for repository
+    remote_url = await _get_org_repository_url(repo_path, user_context)
+    if not remote_url:
+        _logger.debug(f'No {level} skills repository found at {repo_path}')
+        return []
+
+    # Clone the repository
+    org_repo_dir = f'{working_dir}/_org_openhands_{org_name}_{level.replace("-", "_")}'
+    clone_success = await _clone_org_repository(
+        workspace, remote_url, org_repo_dir, working_dir, repo_path
+    )
+    if not clone_success:
+        _logger.debug(f'Failed to clone {level} skills repository from {repo_path}')
+        return []
+
+    # Load skills from both skills/ and microagents/ directories
+    (
+        skills_dir_skills,
+        microagents_dir_skills,
+    ) = await _load_skills_from_org_directories(
+        workspace, org_repo_dir, working_dir
+    )
+
+    # Merge skills with proper precedence
+    repo_skills = _merge_org_skills_with_precedence(
+        skills_dir_skills, microagents_dir_skills
+    )
+
+    # Clean up the repo directory
+    await _cleanup_org_repository(workspace, org_repo_dir, working_dir)
+
+    if repo_skills:
+        _logger.info(
+            f'Loaded {len(repo_skills)} skills from {level} repository {repo_path}: {[s.name for s in repo_skills]}'
+        )
+
+    return repo_skills
+
+
 async def load_org_skills(
     workspace: AsyncRemoteWorkspace,
     selected_repository: str | None,
@@ -582,8 +653,9 @@ async def load_org_skills(
     since GitLab doesn't support repository names starting with non-alphanumeric
     characters.
 
-    For Azure DevOps repositories, it will use org/openhands-config/openhands-config
-    format to match Azure DevOps's three-part repository structure (org/project/repo).
+    For Azure DevOps repositories, it will check both project-level
+    (org/project/openhands-config) and org-level (org/openhands-config/openhands-config).
+    Project-level skills have priority, and only missing skills from org-level are added.
 
     Args:
         workspace: AsyncRemoteWorkspace to execute commands in the sandbox
@@ -608,44 +680,64 @@ async def load_org_skills(
             return []
 
         # Determine organization repository path
-        org_openhands_repo, org_name = await _determine_org_repo_path(
+        project_repo_path, org_repo_path, org_name, is_azure_devops, project_name = await _determine_org_repo_path(
             selected_repository, user_context
         )
 
-        _logger.info(f'Checking for org-level skills at {org_openhands_repo}')
-
-        # Get authenticated URL for org repository
-        remote_url = await _get_org_repository_url(org_openhands_repo, user_context)
-        if not remote_url:
-            return []
-
-        # Clone the organization repository
-        org_repo_dir = f'{working_dir}/_org_openhands_{org_name}'
-        clone_success = await _clone_org_repository(
-            workspace, remote_url, org_repo_dir, working_dir, org_openhands_repo
-        )
-        if not clone_success:
-            return []
-
-        # Load skills from both skills/ and microagents/ directories
-        (
-            skills_dir_skills,
-            microagents_dir_skills,
-        ) = await _load_skills_from_org_directories(
-            workspace, org_repo_dir, working_dir
+        _logger.debug(
+            f'Determined paths - project_repo_path: {project_repo_path}, '
+            f'org_repo_path: {org_repo_path}, is_azure_devops: {is_azure_devops}, '
+            f'project_name: {project_name}'
         )
 
-        # Merge skills with proper precedence
-        loaded_skills = _merge_org_skills_with_precedence(
-            skills_dir_skills, microagents_dir_skills
-        )
+        loaded_skills = []
 
-        _logger.info(
-            f'Loaded {len(loaded_skills)} skills from org-level repository {org_openhands_repo}: {[s.name for s in loaded_skills]}'
-        )
+        # For Azure DevOps, check both project-level and org-level
+        if is_azure_devops and project_name and org_repo_path:
+            try:
+                # First: try project-level (org/project/openhands-config) - has priority
+                project_skills = await _try_load_repo_skills(
+                    workspace, project_repo_path, org_name, working_dir, user_context, 'project-level'
+                )
+                if project_skills:
+                    loaded_skills.extend(project_skills)
+                    _logger.info(
+                        f'Loaded {len(project_skills)} skills from project-level repository'
+                    )
 
-        # Clean up the org repo directory
-        await _cleanup_org_repository(workspace, org_repo_dir, working_dir)
+                # Second: try org-level (org/openhands-config/openhands-config) - add missing skills
+                org_skills = await _try_load_repo_skills(
+                    workspace, org_repo_path, org_name, working_dir, user_context, 'organization-level'
+                )
+                if org_skills:
+                    # Get existing skill names from project-level
+                    existing_skill_names = {skill.name for skill in loaded_skills}
+                    # Add only skills from org-level that don't exist in project-level
+                    missing_skills = [
+                        skill for skill in org_skills if skill.name not in existing_skill_names
+                    ]
+                    if missing_skills:
+                        loaded_skills.extend(missing_skills)
+                        _logger.info(
+                            f'Added {len(missing_skills)} missing skills from organization-level repository'
+                        )
+            except Exception as e:
+                _logger.warning(
+                    f'Error loading Azure DevOps org skills: {str(e)}', exc_info=True
+                )
+                # Continue with whatever skills were loaded so far
+        else:
+            # For other providers, use the single determined path
+            skills = await _try_load_repo_skills(
+                workspace, project_repo_path, org_name, working_dir, user_context, 'organization-level'
+            )
+            if skills:
+                loaded_skills.extend(skills)
+
+        if loaded_skills:
+            _logger.info(
+                f'Total loaded {len(loaded_skills)} skills from org-level repositories: {[s.name for s in loaded_skills]}'
+            )
 
         return loaded_skills
 
