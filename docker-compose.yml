@@ -1,5 +1,24 @@
-
 services:
+  # Serviço PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: openhands-postgres
+    environment:
+      - POSTGRES_DB=openhands
+      - POSTGRES_USER=openhands
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-openhands_secure_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openhands"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Serviço OpenHands
   openhands:
     build:
       context: ./
@@ -7,18 +26,47 @@ services:
     image: openhands:latest
     container_name: openhands-app-${DATE:-}
     environment:
+      # Agent Server
       - AGENT_SERVER_IMAGE_REPOSITORY=${AGENT_SERVER_IMAGE_REPOSITORY:-ghcr.io/openhands/agent-server}
       - AGENT_SERVER_IMAGE_TAG=${AGENT_SERVER_IMAGE_TAG:-31536c8-python}
       #- SANDBOX_USER_ID=${SANDBOX_USER_ID:-1234} # enable this only if you want a specific non-root sandbox user but you will have to manually adjust permissions of ~/.openhands for this user
-      - WORKSPACE_MOUNT_PATH=${WORKSPACE_BASE:-$PWD/workspace}
+
+      # Workspace
+      - WORKSPACE_MOUNT_PATH=${WORKSPACE_BASE:-./workspace}
+
+      # Segurança
+      - OH_SECRET_KEY=${OH_SECRET_KEY}
+
+      # Azure OpenAI API Version (opcional - padrão: 2025-03-01-preview)
+      # Prioridade: LLM_API_VERSION > AZURE_API_VERSION > AZURE_API_VERSION_DEFAULT
+      - LLM_API_VERSION=2025-03-01-preview
+      # PostgreSQL Database (OpenHands usa DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS)
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=openhands
+      - DB_USER=openhands
+      - DB_PASS=${POSTGRES_PASSWORD:-openhands_secure_password}
     ports:
       - "3000:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      # Docker socket - mantém o formato Unix mesmo no Windows
       - /var/run/docker.sock:/var/run/docker.sock
-      - ~/.openhands:/.openhands
-      - ${WORKSPACE_BASE:-$PWD/workspace}:/opt/workspace_base
+
+      # Diretório de configuração - Windows path
+      - ${USERPROFILE:-~}/.openhands:/.openhands
+
+      # Workspace - relativo ao diretório atual
+      - ${WORKSPACE_BASE:-./workspace}:/opt/workspace_base
+    depends_on:
+      postgres:
+        condition: service_healthy
     pull_policy: build
     stdin_open: true
     tty: true
+
+# Volumes nomeados para persistência do PostgreSQL
+volumes:
+  postgres_data:
+    driver: local
