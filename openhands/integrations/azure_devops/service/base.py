@@ -66,3 +66,19 @@ class AzureDevOpsMixinBase(BaseGitService, HTTPClient):
             URL-encoded string with spaces and special characters properly encoded
         """
         return quote(component, safe='')
+
+    def _get_encoded_repo_components(self, repository: str) -> tuple[str, str, str]:
+        """Parse repository and return encoded components for URL construction.
+
+        Args:
+            repository: Repository name in format "organization/project/repo"
+
+        Returns:
+            Tuple of (org_enc, project_enc, repo_enc) - all URL-encoded
+        """
+        org, project, repo = self._parse_repository(repository)
+        return (
+            self._encode_url_component(org),
+            self._encode_url_component(project),
+            self._encode_url_component(repo),
+        )

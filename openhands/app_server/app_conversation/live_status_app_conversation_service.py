@@ -269,8 +269,15 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             body_json = start_conversation_request.model_dump(
                 mode='json', context={'expose_secrets': True}
             )
+            # Construct the full URL for the request
+            conversation_url = f'{agent_server_url.rstrip("/")}/api/conversations'
+            _logger.info(
+                f'Starting conversation on agent-server: {conversation_url} '
+                f'(sandbox_id={sandbox.id}, sandbox_status={sandbox.status})'
+            )
+
             response = await self.httpx_client.post(
-                f'{agent_server_url}/api/conversations',
+                conversation_url,
                 json=body_json,
                 headers={'X-Session-API-Key': sandbox.session_api_key},
                 timeout=self.sandbox_startup_timeout,
@@ -536,7 +543,25 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             for exposed_url in exposed_urls
             if exposed_url.name == AGENT_SERVER
         )
-        agent_server_url = replace_localhost_hostname_for_docker(agent_server_url)
+        # Only replace localhost if it's actually localhost (not Traefik paths or remote URLs)
+        # Traefik paths already have the correct domain, don't modify them
+        from urllib.parse import urlparse
+        parsed = urlparse(agent_server_url)
+
+        # Check if we're using Traefik paths (domain is not localhost)
+        base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+        use_traefik_paths = base_domain != 'localhost'
+
+        if parsed.hostname == 'localhost' and not use_traefik_paths:
+            # Only replace localhost if we're NOT using Traefik paths
+            # With host network, localhost works directly, but with bridge network we need host.docker.internal
+            # Check if SANDBOX_USE_HOST_NETWORK is enabled
+            use_host_network = os.getenv('SANDBOX_USE_HOST_NETWORK', '').lower() in ('true', '1', 'yes')
+            if not use_host_network:
+                # Bridge network: replace localhost for Docker access
+                agent_server_url = replace_localhost_hostname_for_docker(agent_server_url)
+            # With host network, localhost works directly, no replacement needed
+        # If hostname is not localhost (e.g., Traefik domain), use as-is
         return agent_server_url
 
     def _inherit_configuration_from_parent(
@@ -678,7 +703,14 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             return
 
         # Add default OpenHands MCP server
-        mcp_url = f'{self.web_url}/mcp/mcp'
+        # Ensure web_url doesn't already end with / and doesn't have duplicate https://
+        web_url = self.web_url.rstrip('/')
+        # Remove duplicate https:// if present
+        if web_url.startswith('https://https://'):
+            web_url = web_url.replace('https://https://', 'https://', 1)
+        elif web_url.startswith('http://http://'):
+            web_url = web_url.replace('http://http://', 'http://', 1)
+        mcp_url = f'{web_url}/mcp/mcp'
         mcp_servers['default'] = {'url': mcp_url}
 
         # Add API key if available

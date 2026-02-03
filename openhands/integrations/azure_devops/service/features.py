@@ -146,12 +146,8 @@ class AzureDevOpsFeaturesMixin(AzureDevOpsMixinBase):
 
     async def _get_cursorrules_url(self, repository: str) -> str:
         """Get the URL for checking .cursorrules file in Azure DevOps."""
-        org, project, repo = self._parse_repository(repository)
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo)
-        return f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/items?path=/.cursorrules&api-version=7.1'
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
+        return f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/items?path=/.cursorrules&api-version=7.1'
 
     async def _get_microagents_directory_url(
         self, repository: str, microagents_path: str
@@ -167,12 +163,8 @@ class AzureDevOpsFeaturesMixin(AzureDevOpsMixinBase):
             raise ValueError(
                 f'Invalid repository format: {repository}. Expected format: organization/project/repo'
             )
-        org, project, repo = parts[0], parts[1], parts[2]
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo)
-        return f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/items?path=/{microagents_path}&recursionLevel=OneLevel&api-version=7.1'
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
+        return f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/items?path=/{microagents_path}&recursionLevel=OneLevel&api-version=7.1'
 
     def _get_microagents_directory_params(self, microagents_path: str) -> dict | None:
         """Get parameters for the microagents directory request. Return None if no parameters needed."""
@@ -207,12 +199,8 @@ class AzureDevOpsFeaturesMixin(AzureDevOpsMixinBase):
         Returns:
             MicroagentContentResponse with parsed content and triggers
         """
-        org, project, repo = self._parse_repository(repository)
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo)
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/items?path={file_path}&api-version=7.1'
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
+        url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/items?path={file_path}&api-version=7.1'
 
         try:
             response, _ = await self._make_request(url)

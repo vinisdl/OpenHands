@@ -135,10 +135,28 @@ class SandboxService(ABC):
         """
         try:
             agent_server_url = self._get_agent_server_url(sandbox)
-            url = f'{agent_server_url.rstrip("/")}/alive'
-            response = await httpx_client.get(url, timeout=5.0)
+            # Check if we're using Traefik paths (URL contains the domain, not localhost)
+            from urllib.parse import urlparse
+            import os
+            parsed = urlparse(agent_server_url)
+            base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+            use_traefik_paths = base_domain != 'localhost' and parsed.hostname != 'localhost'
+
+            if use_traefik_paths:
+                # Traefik path: use /alive (agent-server has /alive, not /api/alive)
+                # The agent_server_url already includes /{container_name}, so we add /alive
+                # After Traefik strips /{container_name}, the agent-server receives /alive
+                url = f'{agent_server_url.rstrip("/")}/alive'
+            else:
+                # Port-based URL: use /alive directly
+                url = f'{agent_server_url.rstrip("/")}/alive'
+
+            response = await httpx_client.get(url, timeout=10.0)  # Increased timeout for Traefik
             return response.is_success
-        except Exception:
+        except Exception as exc:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.debug(f'Agent server alive check failed: {exc}', exc_info=True)
             return False
 
     def _get_agent_server_url(self, sandbox: SandboxInfo) -> str:

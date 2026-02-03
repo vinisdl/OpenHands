@@ -165,12 +165,7 @@ class AzureDevOpsReposMixin(AzureDevOpsMixinBase):
         Returns:
             Repository object with details
         """
-        org, project, repo = self._parse_repository(repository)
-
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo)
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
 
         url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}?api-version=7.1'
         response, _ = await self._make_request(url)

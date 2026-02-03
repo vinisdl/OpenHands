@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import socket
+import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import AsyncGenerator
@@ -108,8 +109,16 @@ class DockerSandboxService(SandboxService):
         }
         return status_mapping.get(docker_status.lower(), SandboxStatus.ERROR)
 
-    def _get_container_env_vars(self, container) -> dict[str, str | None]:
-        env_vars_list = container.attrs['Config']['Env']
+    def _get_container_env_vars(self, container, attrs: dict | None = None) -> dict[str, str | None]:
+        """Get container environment variables from attrs.
+
+        Args:
+            container: Docker container object
+            attrs: Optional pre-loaded container attrs to avoid additional API calls
+        """
+        if attrs is None:
+            attrs = container.attrs
+        env_vars_list = attrs['Config']['Env']
         result = {}
         for env_var in env_vars_list:
             if '=' in env_var:
@@ -122,11 +131,20 @@ class DockerSandboxService(SandboxService):
 
     async def _container_to_sandbox_info(self, container) -> SandboxInfo | None:
         """Convert Docker container to SandboxInfo."""
+        # Reload container once to get fresh data and cache attrs to avoid multiple HTTP requests
+        try:
+            container.reload()
+        except (NotFound, APIError):
+            return None
+
+        # Cache attrs to avoid multiple HTTP requests
+        attrs = container.attrs
+
         # Convert Docker status to runtime status
         status = self._docker_status_to_sandbox_status(container.status)
 
         # Parse creation time
-        created_str = container.attrs.get('Created', '')
+        created_str = attrs.get('Created', '')
         try:
             created_at = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
         except (ValueError, AttributeError):
@@ -137,26 +155,33 @@ class DockerSandboxService(SandboxService):
         session_api_key = None
 
         if status == SandboxStatus.RUNNING:
-            # Get session API key first
-            env = self._get_container_env_vars(container)
+            # Get session API key first (pass attrs to avoid additional API call)
+            env = self._get_container_env_vars(container, attrs)
             session_api_key = env.get(SESSION_API_KEY_VARIABLE)
 
             # Get the exposed port mappings
             exposed_urls = []
 
             # Check if container is using host network mode
-            network_mode = container.attrs.get('HostConfig', {}).get('NetworkMode', '')
+            network_mode = attrs.get('HostConfig', {}).get('NetworkMode', '')
             is_host_network = network_mode == 'host'
+
+            # Check if we should use Traefik path-based URLs
+            # NOTE: With host network, we always use localhost, not Traefik paths
+            base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+            use_traefik_paths = base_domain != 'localhost' and not is_host_network
 
             if is_host_network:
                 # Host network mode: container ports are directly accessible on host
+                # Always use localhost, not Traefik paths (container is on host network)
                 for exposed_port in self.exposed_ports:
                     host_port = exposed_port.container_port
-                    url = self.container_url_pattern.format(port=host_port)
 
+                    # Use port-based URLs for localhost (host network doesn't use Traefik)
+                    url = self.container_url_pattern.format(port=host_port)
                     # VSCode URLs require the api_key and working dir
                     if exposed_port.name == VSCODE:
-                        url += f'/?tkn={session_api_key}&folder={container.attrs["Config"]["WorkingDir"]}'
+                        url += f'/?tkn={session_api_key}&folder={attrs["Config"]["WorkingDir"]}'
 
                     exposed_urls.append(
                         ExposedUrl(
@@ -167,7 +192,7 @@ class DockerSandboxService(SandboxService):
                     )
             else:
                 # Bridge network mode: use port bindings
-                port_bindings = container.attrs.get('NetworkSettings', {}).get(
+                port_bindings = attrs.get('NetworkSettings', {}).get(
                     'Ports', {}
                 )
                 if port_bindings:
@@ -183,11 +208,32 @@ class DockerSandboxService(SandboxService):
                                 None,
                             )
                             if matching_port:
-                                url = self.container_url_pattern.format(port=host_port)
+                                if use_traefik_paths:
+                                    # Use Traefik path-based URLs
+                                    protocol = 'https' if 'https' in base_domain or not base_domain.startswith('http') else 'http'
+                                    base_url = base_domain if base_domain.startswith('http') else f'{protocol}://{base_domain}'
 
-                                # VSCode URLs require the api_key and working dir
-                                if matching_port.name == VSCODE:
-                                    url += f'/?tkn={session_api_key}&folder={container.attrs["Config"]["WorkingDir"]}'
+                                    if matching_port.name == AGENT_SERVER:
+                                        # Base URL without /api - the /api will be added by the caller
+                                        url = f'{base_url}/{container.name}'
+                                    elif matching_port.name == VSCODE:
+                                        url = f'{base_url}/{container.name}/vscode'
+                                    elif matching_port.name == WORKER_1:
+                                        url = f'{base_url}/{container.name}/app1'
+                                    elif matching_port.name == WORKER_2:
+                                        url = f'{base_url}/{container.name}/app2'
+                                    else:
+                                        url = f'{base_url}/{container.name}/{matching_port.name.lower()}'
+
+                                    # VSCode URLs require the api_key and working dir
+                                    if matching_port.name == VSCODE:
+                                        url += f'/?tkn={session_api_key}&folder={attrs["Config"]["WorkingDir"]}'
+                                else:
+                                    # Use port-based URLs for localhost
+                                    url = self.container_url_pattern.format(port=host_port)
+                                    # VSCode URLs require the api_key and working dir
+                                    if matching_port.name == VSCODE:
+                                        url += f'/?tkn={session_api_key}&folder={attrs["Config"]["WorkingDir"]}'
 
                                 exposed_urls.append(
                                     ExposedUrl(
@@ -197,10 +243,21 @@ class DockerSandboxService(SandboxService):
                                     )
                                 )
 
+        # Get image from attrs to avoid additional API call (container.image.tags makes HTTP request)
+        image_id = attrs.get('Config', {}).get('Image', '')
+        if not image_id:
+            # Fallback: try to get from Image field or container.image
+            image_id = attrs.get('Image', '')
+        if not image_id and hasattr(container, 'image') and container.image:
+            # Last resort: use container.image.tags (this makes an HTTP request)
+            image_id = container.image.tags[0] if container.image.tags else 'unknown'
+        elif not image_id:
+            image_id = 'unknown'
+
         return SandboxInfo(
             id=container.name,
             created_by_user_id=None,
-            sandbox_spec_id=container.image.tags[0],
+            sandbox_spec_id=image_id,
             status=status,
             session_api_key=session_api_key,
             exposed_urls=exposed_urls,
@@ -219,26 +276,93 @@ class DockerSandboxService(SandboxService):
                 for exposed_url in sandbox_info.exposed_urls
                 if exposed_url.name == AGENT_SERVER
             )
-            try:
-                # When running in Docker, replace localhost hostname with host.docker.internal for internal requests
-                app_server_url = replace_localhost_hostname_for_docker(app_server_url)
 
-                response = await self.httpx_client.get(
-                    f'{app_server_url}{self.health_check_path}'
+            # Build health check URL
+            # For Traefik paths, health check should use /api/health
+            # For port-based URLs, use the health_check_path directly
+            base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+
+            # Check if container is using host network mode
+            # Get attrs (container.attrs is cached after _container_to_sandbox_info, but reload to be safe)
+            try:
+                container.reload()
+            except (NotFound, APIError):
+                pass
+            attrs = container.attrs
+            network_mode = attrs.get('HostConfig', {}).get('NetworkMode', '')
+            is_host_network = network_mode == 'host'
+
+            # NOTE: With host network, we always use localhost, not Traefik paths
+            use_traefik_paths = base_domain != 'localhost' and not is_host_network
+
+            if use_traefik_paths:
+                # Traefik path: health check is at /{container_name}/alive
+                # app_server_url is already {base_url}/{container_name}, so we add /alive
+                # Note: After Traefik strips /{container_name}, the agent-server receives /alive
+                # The agent-server has /alive (not /api/alive) for health checks
+                health_url = f'{app_server_url}/alive'
+            elif is_host_network:
+                # Host network: container ports are directly on host
+                # With host network, both OpenHands and agent-server share the host network,
+                # so localhost works directly (no need for host.docker.internal)
+                # Extract port from app_server_url (format: http://localhost:PORT)
+                import re
+                port_match = re.search(r':(\d+)(?:/|$)', app_server_url)
+                if port_match:
+                    port = port_match.group(1)
+                    # With host network, use localhost directly (both containers share host network)
+                    health_url = f'http://localhost:{port}{self.health_check_path}'
+                else:
+                    # Fallback: use replace_localhost_hostname_for_docker
+                    app_server_url_for_check = replace_localhost_hostname_for_docker(app_server_url)
+                    health_url = f'{app_server_url_for_check}{self.health_check_path}'
+            else:
+                # Bridge network: use replace_localhost_hostname_for_docker and append health_check_path
+                app_server_url_for_check = replace_localhost_hostname_for_docker(app_server_url)
+                health_url = f'{app_server_url_for_check}{self.health_check_path}'
+
+            # Set timeout based on configuration
+            if use_traefik_paths:
+                timeout = 15.0  # Longer timeout for Traefik paths (routing can be slower)
+            elif is_host_network:
+                timeout = 10.0  # Longer timeout for host network
+            else:
+                timeout = 5.0  # Standard timeout for bridge network
+
+            try:
+                _logger.info(
+                    f'Checking sandbox health: {health_url} '
+                    f'(host_network={is_host_network}, traefik={use_traefik_paths}, timeout={timeout}s, '
+                    f'container={container.name}, status={container.status})'
                 )
+                response = await self.httpx_client.get(health_url, timeout=timeout)
                 response.raise_for_status()
+                _logger.info(f'Sandbox health check passed: {health_url}')
+                # Health check passed - ensure status is RUNNING if container is running
+                if container.status == 'running' and sandbox_info.status != SandboxStatus.RUNNING:
+                    _logger.info(f'Updating sandbox status to RUNNING after successful health check')
+                    sandbox_info.status = SandboxStatus.RUNNING
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                # If the server is
-                if sandbox_info.created_at < utc_now() - timedelta(
+                # Check if we're past the grace period
+                grace_period_elapsed = sandbox_info.created_at < utc_now() - timedelta(
                     seconds=self.startup_grace_seconds
-                ):
-                    _logger.info(
-                        f'Sandbox server not running: {app_server_url} : {exc}'
+                )
+                if grace_period_elapsed:
+                    _logger.error(
+                        f'Sandbox server not running: {health_url} : {exc} '
+                        f'(container_status={container.status}, host_network={is_host_network}, '
+                        f'traefik={use_traefik_paths}, grace_period_elapsed={grace_period_elapsed}, '
+                        f'created_at={sandbox_info.created_at}, now={utc_now()})',
+                        exc_info=True,
                     )
                     sandbox_info.status = SandboxStatus.ERROR
                 else:
+                    _logger.debug(
+                        f'Sandbox health check failed (within grace period): {health_url} : {exc}',
+                        exc_info=True,
+                    )
                     sandbox_info.status = SandboxStatus.STARTING
                 sandbox_info.exposed_urls = None
                 sandbox_info.session_api_key = None
@@ -358,9 +482,19 @@ class DockerSandboxService(SandboxService):
 
         # Prepare environment variables
         env_vars = sandbox_spec.initial_env.copy()
+        # Set both OH_SESSION_API_KEYS_0 (for app server tracking) and SESSION_API_KEY (for agent-server)
         env_vars[SESSION_API_KEY_VARIABLE] = session_api_key
+        env_vars['SESSION_API_KEY'] = session_api_key  # Agent-server expects this variable name
+
+        # Determine webhook callback hostname
+        # Priority: 1. SANDBOX_API_HOSTNAME env var (for container-to-container communication)
+        #          2. host.docker.internal (default for host network access)
+        # When containers are in the same Docker network, use the container name (e.g., 'db-tars')
+        # instead of 'host.docker.internal' for better reliability
+        webhook_hostname = os.getenv('SANDBOX_API_HOSTNAME', 'host.docker.internal')
+
         env_vars[WEBHOOK_CALLBACK_VARIABLE] = (
-            f'http://host.docker.internal:{self.host_port}/api/v1/webhooks'
+            f'http://{webhook_hostname}:{self.host_port}/api/v1/webhooks'
         )
 
         # Set CORS origins for remote browser access when web_url is configured.
@@ -385,10 +519,12 @@ class DockerSandboxService(SandboxService):
                 port_mappings[exposed_port.container_port] = host_port
                 env_vars[exposed_port.name] = str(host_port)
 
-        # Prepare labels
+        # Prepare labels with Traefik configuration
         labels = {
             'sandbox_spec_id': sandbox_spec.id,
         }
+        traefik_labels = self.generate_traefik_labels(container_name)
+        labels.update(traefik_labels)
 
         # Prepare volumes
         volumes = {
@@ -399,44 +535,242 @@ class DockerSandboxService(SandboxService):
             for mount in self.mounts
         }
 
-        # Determine network mode
-        network_mode = 'host' if self.use_host_network else None
+        # Determine network mode and network name
+        network_name = None
+        if not self.use_host_network:
+            network_name = self.get_traefik_network_name()
+            if network_name:
+                _logger.info(f'Creating sandbox {container_name} in Traefik network: {network_name}')
 
         if self.use_host_network:
             _logger.info(f'Starting sandbox {container_name} with host network mode')
 
+        # Prepare run kwargs for network configuration
+        # Use the same approach as docker_runtime.py: set network_mode or network directly
+        run_kwargs: dict[str, typing.Any] = {}
+        if self.use_host_network:
+            run_kwargs['network_mode'] = 'host'
+        elif network_name:
+            # Create container directly in Traefik network (like docker_runtime.py does)
+            run_kwargs['network'] = network_name
+
         try:
-            # Create and start the container
-            container = self.docker_client.containers.run(  # type: ignore[call-overload]
-                image=sandbox_spec.id,
-                command=sandbox_spec.command,  # Use default command from image
-                remove=False,
-                name=container_name,
-                environment=env_vars,
-                ports=port_mappings,
-                volumes=volumes,
-                working_dir=sandbox_spec.working_dir,
-                labels=labels,
-                detach=True,
+            # Prepare container run arguments
+            # When using host network, don't pass ports parameter (Docker requirement)
+            container_run_kwargs: dict[str, typing.Any] = {
+                'image': sandbox_spec.id,
+                'command': sandbox_spec.command,  # Use default command from image
+                'remove': False,
+                'name': container_name,
+                'environment': env_vars,
+                'volumes': volumes,
+                'working_dir': sandbox_spec.working_dir,
+                'labels': labels,
+                'detach': True,
                 # Use Docker's tini init process to ensure proper signal handling and reaping of
                 # zombie child processes.
-                init=True,
-                # Allow agent-server containers to resolve host.docker.internal
-                # and other custom hostnames for LAN deployments
-                # Note: extra_hosts is not needed with host network mode
-                extra_hosts=self.extra_hosts
-                if self.extra_hosts and not self.use_host_network
-                else None,
-                # Network mode: 'host' for host networking, None for default bridge
-                network_mode=network_mode,
+                'init': True,
+            }
+
+            # Only add ports if not using host network (host network doesn't support port mappings)
+            if not self.use_host_network and port_mappings:
+                container_run_kwargs['ports'] = port_mappings
+
+            # Allow agent-server containers to resolve host.docker.internal
+            # and other custom hostnames for LAN deployments
+            # Note: extra_hosts is not needed with host network mode
+            if self.extra_hosts and not self.use_host_network:
+                container_run_kwargs['extra_hosts'] = self.extra_hosts
+
+            # Add network configuration (network_mode='host' or network=network_name)
+            container_run_kwargs.update(run_kwargs)
+
+            # Create and start the container
+            # Container is created directly in the Traefik network (if network_name is set)
+            # or in host network mode (if use_host_network is True)
+            container = self.docker_client.containers.run(  # type: ignore[call-overload]
+                **container_run_kwargs,
             )
+
+            # Log network configuration for debugging
+            try:
+                container.reload()
+                actual_network_mode = container.attrs.get('HostConfig', {}).get('NetworkMode', 'default')
+                _logger.info(
+                    f'Container {container_name} created with network_mode: {actual_network_mode}, '
+                    f'expected: {"host" if self.use_host_network else network_name or "bridge"}'
+                )
+            except Exception as e:
+                _logger.warning(f'Failed to reload container {container_name} after creation: {e}')
+
+            # Reload container to get updated status
+            try:
+                container.reload()
+                _logger.info(
+                    f'Container {container_name} created with status: {container.status}, '
+                    f'network_mode: {container.attrs.get("HostConfig", {}).get("NetworkMode", "default")}'
+                )
+            except Exception as e:
+                _logger.warning(f'Failed to reload container {container_name}: {e}')
 
             sandbox_info = await self._container_to_sandbox_info(container)
             assert sandbox_info is not None
+            _logger.info(
+                f'Sandbox {container_name} info: status={sandbox_info.status}, '
+                f'exposed_urls={[url.url for url in sandbox_info.exposed_urls] if sandbox_info.exposed_urls else None}'
+            )
             return sandbox_info
 
         except APIError as e:
-            raise SandboxError(f'Failed to start container: {e}')
+            error_msg = str(e)
+            # Include more details about the error
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_body = e.response.text if hasattr(e.response, 'text') else str(e.response)
+                    error_msg = f'{error_msg} - Response: {error_body[:500]}'
+                except Exception:
+                    pass
+            _logger.error(
+                f'Failed to start container {container_name}: {error_msg}',
+                exc_info=True,
+            )
+            raise SandboxError(f'Failed to start container: {error_msg}')
+
+    def get_traefik_network_name(self, use_host_network: bool | None = None) -> str | None:
+        """Get the Traefik network name if available.
+
+        Args:
+            use_host_network: Whether host network mode is enabled. If None, uses self.use_host_network.
+
+        Returns:
+            Network name if found, None otherwise.
+        """
+        if use_host_network is None:
+            use_host_network = self.use_host_network
+
+        if use_host_network:
+            return None
+
+        # Check if Traefik network exists and connect container to it
+        # Try common Traefik network names, including docker-compose network names
+        traefik_networks = [
+            'traefik',
+            'traefik_default',
+            'traefik-traefik',
+            'azure-db_default',
+            'openhands-default',
+            'openhands_default',
+        ]
+        for network_name in traefik_networks:
+            try:
+                traefik_network = self.docker_client.networks.get(network_name)
+                _logger.info(f'Found Traefik network: {traefik_network.name}')
+                return traefik_network.name
+            except NotFound:
+                continue
+
+        # Try to find Traefik network by inspecting containers with traefik labels
+        try:
+            all_networks = self.docker_client.networks.list()
+            for network in all_networks:
+                # Check if this network has containers with traefik labels
+                if network.containers:
+                    for container_id in network.containers:
+                        try:
+                            container = self.docker_client.containers.get(container_id)
+                            if container.labels and any(
+                                key.startswith('traefik.') for key in container.labels.keys()
+                            ):
+                                _logger.info(f'Found Traefik network via container inspection: {network.name}')
+                                return network.name
+                        except (NotFound, APIError):
+                            continue
+        except Exception as e:
+            _logger.debug(f'Error searching for Traefik network: {e}')
+
+        _logger.warning('No Traefik network found, container will use default bridge network. Traefik may not be able to access the container.')
+        return None
+
+    def generate_traefik_labels(self, container_name: str) -> dict[str, str]:
+        """Generate Traefik labels for the container.
+
+        Args:
+            container_name: Name of the container.
+
+        Returns:
+            Dictionary of Traefik labels.
+        """
+        base_domain = os.environ.get('VITE_BACKEND_BASE_URL', 'localhost')
+
+        # Get exposed ports from the container configuration
+        # We need to determine which ports are exposed
+        agent_server_port = 8000
+        vscode_port = 8001
+        worker_1_port = 8011
+        worker_2_port = 8012
+
+        # Find the actual ports from exposed_ports
+        for exposed_port in self.exposed_ports:
+            if exposed_port.name == AGENT_SERVER:
+                agent_server_port = exposed_port.container_port
+            elif exposed_port.name == VSCODE:
+                vscode_port = exposed_port.container_port
+            elif exposed_port.name == WORKER_1:
+                worker_1_port = exposed_port.container_port
+            elif exposed_port.name == WORKER_2:
+                worker_2_port = exposed_port.container_port
+
+        labels = {
+            "traefik.enable": "true",
+        }
+
+        # Middleware genérico - remove apenas o prefixo do container
+        labels[f"traefik.http.middlewares.{container_name}-stripprefix.stripprefix.prefixes"] = f"/{container_name}"
+
+        # Criar rotas baseadas nas portas expostas
+        port_configs = [
+            (AGENT_SERVER, agent_server_port, container_name, f"/{container_name}/", f"/{container_name}/api/", False),
+            (VSCODE, vscode_port, f"{container_name}-vscode", f"/{container_name}/vscode", None, True),
+            (WORKER_1, worker_1_port, f"{container_name}-app1", f"/{container_name}/app1", None, False),
+            (WORKER_2, worker_2_port, f"{container_name}-app2", f"/{container_name}/app2", None, False),
+        ]
+
+        for port_name, port, service_name, path_prefix, additional_route, is_vscode in port_configs:
+            # Criar middleware específico para serviços que precisam remover o path completo
+            if path_prefix != f"/{container_name}/":
+                middleware_name = f"{container_name}-{service_name.split('-')[-1]}-stripprefix"
+                labels[f"traefik.http.middlewares.{middleware_name}.stripprefix.prefixes"] = path_prefix
+            else:
+                middleware_name = f"{container_name}-stripprefix"
+
+            # Router principal
+            labels[f"traefik.http.routers.{service_name}.rule"] = f"Host(`{base_domain}`) && PathPrefix(`{path_prefix}`)"
+            labels[f"traefik.http.routers.{service_name}.entrypoints"] = "websecure"
+            labels[f"traefik.http.routers.{service_name}.tls"] = "true"
+            labels[f"traefik.http.routers.{service_name}.tls.certresolver"] = "tlsresolver"
+            labels[f"traefik.http.routers.{service_name}.service"] = service_name
+            labels[f"traefik.http.routers.{service_name}.middlewares"] = middleware_name
+
+            # Rota adicional (apenas para AGENT_SERVER)
+            if additional_route:
+                labels[f"traefik.http.routers.{service_name}-api.rule"] = f"Host(`{base_domain}`) && PathPrefix(`{additional_route}`)"
+                labels[f"traefik.http.routers.{service_name}-api.entrypoints"] = "websecure"
+                labels[f"traefik.http.routers.{service_name}-api.tls"] = "true"
+                labels[f"traefik.http.routers.{service_name}-api.tls.certresolver"] = "tlsresolver"
+                labels[f"traefik.http.routers.{service_name}-api.service"] = service_name
+                labels[f"traefik.http.routers.{service_name}-api.middlewares"] = f"{container_name}-stripprefix"
+                labels[f"traefik.http.routers.{service_name}-api.priority"] = "10"
+
+            # Service
+            labels[f"traefik.http.services.{service_name}.loadbalancer.server.port"] = str(port)
+            labels[f"traefik.http.services.{service_name}.loadbalancer.server.scheme"] = "http"
+
+            # Configurações específicas para VSCode
+            if is_vscode:
+                labels[f"traefik.http.services.{service_name}.loadbalancer.passHostHeader"] = "true"
+                labels[f"traefik.http.services.{service_name}.loadbalancer.responseForwarding.flushInterval"] = "1ms"
+
+        return labels
 
     async def resume_sandbox(self, sandbox_id: str) -> bool:
         """Resume a paused sandbox."""

@@ -22,16 +22,11 @@ class AzureDevOpsResolverMixin(AzureDevOpsMixinBase):
         Returns:
             A tuple of (title, body)
         """
-        org, project, repo = self._parse_repository(repository)
-
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo)
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
 
         # Try to get as a pull request first
         try:
-            pr_url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{issue_number}?api-version=7.1'
+            pr_url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{issue_number}?api-version=7.1'
             response, _ = await self._make_request(pr_url)
             title = response.get('title') or ''
             body = response.get('description') or ''
@@ -41,7 +36,7 @@ class AzureDevOpsResolverMixin(AzureDevOpsMixinBase):
 
         # Fall back to work item
         try:
-            wi_url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/wit/workitems/{issue_number}?api-version=7.1'
+            wi_url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/wit/workitems/{issue_number}?api-version=7.1'
             response, _ = await self._make_request(wi_url)
             fields = response.get('fields', {})
             title = fields.get('System.Title') or ''
@@ -106,14 +101,9 @@ class AzureDevOpsResolverMixin(AzureDevOpsMixinBase):
         Returns:
             List of Comment objects representing the thread
         """
-        org, project, repo = self._parse_repository(repository)
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
 
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo)
-
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads/{thread_id}?api-version=7.1'
+        url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/pullrequests/{pr_number}/threads/{thread_id}?api-version=7.1'
 
         try:
             response, _ = await self._make_request(url)

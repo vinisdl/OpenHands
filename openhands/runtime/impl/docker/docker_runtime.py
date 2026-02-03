@@ -857,8 +857,9 @@ class DockerRuntime(ActionExecutionClient):
             f"traefik.http.routers.{container_name}.service": f"{container_name}",
             f"traefik.http.routers.{container_name}.middlewares": f"{container_name}-stripprefix",
 
-            # Middleware para remover o prefixo do path
-            f"traefik.http.middlewares.{container_name}-stripprefix.stripprefix.prefixes": f"/{container_name}/api",
+            # Middleware para remover apenas o prefixo do container, mantendo /api
+            # Remove /{container_name} mas preserva /api para que o agent-server receba /api/conversations
+            f"traefik.http.middlewares.{container_name}-stripprefix.stripprefix.prefixes": f"/{container_name}",
 
             f"traefik.http.services.{container_name}.loadbalancer.server.port": str(self._container_port),
             f"traefik.http.services.{container_name}.loadbalancer.server.scheme": "http",

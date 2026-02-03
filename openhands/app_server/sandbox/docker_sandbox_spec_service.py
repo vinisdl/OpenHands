@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 from typing import AsyncGenerator
+from urllib.parse import urlparse
 
 import docker
 from fastapi import Request
@@ -28,7 +30,25 @@ _logger = logging.getLogger(__name__)
 def get_docker_client() -> docker.DockerClient:
     global _global_docker_client
     if _global_docker_client is None:
-        _global_docker_client = docker.from_env()
+        # Check if DOCKER_HOST is set and configure base_url explicitly
+        docker_host = os.environ.get('DOCKER_HOST')
+        if docker_host:
+            # DOCKER_HOST can be unix://, tcp://, or http://
+            # If it's a TCP/HTTP URL, ensure it has a port
+            if docker_host.startswith('tcp://') or docker_host.startswith('http://') or docker_host.startswith('https://'):
+                # Parse the URL to ensure it has a port
+                parsed = urlparse(docker_host)
+                if not parsed.port:
+                    # Default Docker daemon ports: 2375 for HTTP, 2376 for HTTPS
+                    default_port = 2376 if parsed.scheme == 'https' else 2375
+                    docker_host = f'{parsed.scheme}://{parsed.hostname}:{default_port}'
+                _global_docker_client = docker.DockerClient(base_url=docker_host)
+            else:
+                # Unix socket or other format, use from_env
+                _global_docker_client = docker.from_env()
+        else:
+            # No DOCKER_HOST set, use from_env which will detect automatically
+            _global_docker_client = docker.from_env()
     return _global_docker_client
 
 

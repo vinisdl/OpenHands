@@ -10,7 +10,7 @@ trigger:
 pr:
   branches:
     include:
-      - main-db
+      - main-openhands
 
 pool:
   vmImage: 'ubuntu-latest'

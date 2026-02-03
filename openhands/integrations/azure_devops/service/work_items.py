@@ -38,13 +38,9 @@ class AzureDevOpsWorkItemsMixin(AzureDevOpsMixinBase):
         Raises:
             HTTPException: If the API request fails
         """
-        org, project, _ = self._parse_repository(repository)
+        org_enc, project_enc, _ = self._get_encoded_repo_components(repository)
 
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/wit/workItems/{work_item_id}/comments?api-version=7.1-preview.4'
+        url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/wit/workItems/{work_item_id}/comments?api-version=7.1-preview.4'
 
         payload = {
             'text': comment_text,
@@ -72,13 +68,9 @@ class AzureDevOpsWorkItemsMixin(AzureDevOpsMixinBase):
         Returns:
             List of Comment objects sorted by creation date
         """
-        org, project, _ = self._parse_repository(repository)
+        org_enc, project_enc, _ = self._get_encoded_repo_components(repository)
 
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-
-        url = f'{self.base_url}/{org_enc}/{project_enc}/_apis/wit/workItems/{work_item_id}/comments?api-version=7.1-preview.4'
+        url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/wit/workItems/{work_item_id}/comments?api-version=7.1-preview.4'
 
         response, _ = await self._make_request(url)
 

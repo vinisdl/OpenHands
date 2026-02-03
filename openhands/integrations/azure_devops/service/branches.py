@@ -9,21 +9,7 @@ class AzureDevOpsBranchesMixin(AzureDevOpsMixinBase):
 
     async def get_branches(self, repository: str) -> list[Branch]:
         """Get branches for a repository."""
-        # Parse repository string: organization/project/repo
-        parts = repository.split('/')
-        if len(parts) < 3:
-            raise ValueError(
-                f'Invalid repository format: {repository}. Expected format: organization/project/repo'
-            )
-
-        org = parts[0]
-        project = parts[1]
-        repo_name = parts[2]
-
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo_name)
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
 
         url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/refs?api-version=7.1&filter=heads/'
 
@@ -67,21 +53,7 @@ class AzureDevOpsBranchesMixin(AzureDevOpsMixinBase):
         self, repository: str, page: int = 1, per_page: int = 30
     ) -> PaginatedBranchesResponse:
         """Get branches for a repository with pagination."""
-        # Parse repository string: organization/project/repo
-        parts = repository.split('/')
-        if len(parts) < 3:
-            raise ValueError(
-                f'Invalid repository format: {repository}. Expected format: organization/project/repo'
-            )
-
-        org = parts[0]
-        project = parts[1]
-        repo_name = parts[2]
-
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo_name)
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
 
         # First, get the repository to get its ID
         repo_url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}?api-version=7.1'
@@ -138,21 +110,7 @@ class AzureDevOpsBranchesMixin(AzureDevOpsMixinBase):
         self, repository: str, query: str, per_page: int = 30
     ) -> list[Branch]:
         """Search for branches within a repository."""
-        # Parse repository string: organization/project/repo
-        parts = repository.split('/')
-        if len(parts) < 3:
-            raise ValueError(
-                f'Invalid repository format: {repository}. Expected format: organization/project/repo'
-            )
-
-        org = parts[0]
-        project = parts[1]
-        repo_name = parts[2]
-
-        # URL-encode components to handle spaces and special characters
-        org_enc = self._encode_url_component(org)
-        project_enc = self._encode_url_component(project)
-        repo_enc = self._encode_url_component(repo_name)
+        org_enc, project_enc, repo_enc = self._get_encoded_repo_components(repository)
 
         url = f'https://dev.azure.com/{org_enc}/{project_enc}/_apis/git/repositories/{repo_enc}/refs?api-version=7.1&filter=heads/'
 
