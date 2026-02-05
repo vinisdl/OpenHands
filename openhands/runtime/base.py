@@ -740,8 +740,11 @@ fi
         since GitLab doesn't support repository names starting with non-alphanumeric
         characters.
 
-        For Azure DevOps repositories, it will use org/openhands-config/openhands-config
-        format to match Azure DevOps's three-part repository structure (org/project/repo).
+        For Azure DevOps repositories:
+        - If project is configured (org/project/repo format), it will use
+          org/project/openhands-config
+        - Otherwise, it will use org/openhands-config/openhands-config
+          to match Azure DevOps's three-part repository structure.
 
         Args:
             selected_repository: The repository path (e.g., "github.com/acme-co/api")
@@ -792,8 +795,13 @@ fi
             org_openhands_repo = f'{org_name}/openhands-config'
         elif is_azure_devops:
             # Azure DevOps format: org/project/repo
-            # For org-level config, use: org/openhands-config/openhands-config
-            org_openhands_repo = f'{org_name}/openhands-config/openhands-config'
+            # Se tiver project configurado (3 partes: org/project/repo), usar org/project/openhands-config
+            # Caso contrário, usar org/openhands-config/openhands-config
+            if len(repo_parts) >= 3:
+                project_name = repo_parts[1]
+                org_openhands_repo = f'{org_name}/{project_name}/openhands-config'
+            else:
+                org_openhands_repo = f'{org_name}/openhands-config/openhands-config'
         else:
             org_openhands_repo = f'{org_name}/.openhands'
 

@@ -1,7 +1,7 @@
 """Repository operations for Azure DevOps integration."""
 
 from openhands.integrations.azure_devops.service.base import AzureDevOpsMixinBase
-from openhands.integrations.service_types import ProviderType, Repository
+from openhands.integrations.service_types import OwnerType, ProviderType, Repository
 from openhands.server.types import AppMode
 
 
@@ -39,6 +39,7 @@ class AzureDevOpsReposMixin(AzureDevOpsMixinBase):
                 full_name=f'{self.organization}/{repo.get("project", {}).get("name", "")}/{repo.get("name")}',
                 git_provider=ProviderType.AZURE_DEVOPS,
                 is_public=False,  # Azure DevOps repos are private by default
+                owner_type=OwnerType.ORGANIZATION,  # Azure DevOps repos always belong to organizations
             )
             for repo in repos
         ]
@@ -97,6 +98,7 @@ class AzureDevOpsReposMixin(AzureDevOpsMixinBase):
                 full_name=f'{self.organization}/{repo.get("project_name")}/{repo.get("name")}',
                 git_provider=ProviderType.AZURE_DEVOPS,
                 is_public=False,  # Azure DevOps repos are private by default
+                owner_type=OwnerType.ORGANIZATION,  # Azure DevOps repos always belong to organizations
             )
             for repo in all_repos[:MAX_REPOS]
         ]
@@ -125,6 +127,7 @@ class AzureDevOpsReposMixin(AzureDevOpsMixinBase):
             full_name=f'{self.organization}/{project_name}/{repo.get("name")}',
             git_provider=ProviderType.AZURE_DEVOPS,
             is_public=False,  # Azure DevOps repos are private by default
+            owner_type=OwnerType.ORGANIZATION,  # Azure DevOps repos always belong to organizations
             link_header=link_header,
         )
 
@@ -176,4 +179,5 @@ class AzureDevOpsReposMixin(AzureDevOpsMixinBase):
             full_name=f'{org}/{project}/{repo}',
             git_provider=ProviderType.AZURE_DEVOPS,
             is_public=False,  # Azure DevOps repos are private by default
+            owner_type=OwnerType.ORGANIZATION,  # Azure DevOps repos always belong to organizations
         )

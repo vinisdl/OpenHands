@@ -4,6 +4,8 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
+from openhands.core.logger import openhands_logger as logger
+
 from openhands.integrations.azure_devops.service.branches import (
     AzureDevOpsBranchesMixin,
 )
@@ -190,10 +192,24 @@ class AzureDevOpsService(
         method: RequestMethod = RequestMethod.GET,
     ) -> tuple[Any, dict]:
         try:
-            async with httpx.AsyncClient() as client:
+            # Use follow_redirects=True to handle redirects properly
+            # and ensure URL encoding is handled correctly
+            async with httpx.AsyncClient(follow_redirects=True) as client:
                 azure_devops_headers = await self._get_azure_devops_headers()
 
+                # Log request details for debugging
+                logger.debug(
+                    f'[Azure DevOps] Making {method.value} request to: {url}'
+                )
+                if params:
+                    logger.debug(f'[Azure DevOps] Request params: {params}')
+                logger.debug(
+                    f'[Azure DevOps] Request headers: {list(azure_devops_headers.keys())}'
+                )
+
                 # Make initial request
+                # Note: If params is None and URL already contains query string,
+                # httpx won't add additional encoding
                 response = await self.execute_request(
                     client=client,
                     url=url,
@@ -201,6 +217,12 @@ class AzureDevOpsService(
                     params=params,
                     method=method,
                 )
+
+                # Log response details
+                logger.debug(
+                    f'[Azure DevOps] Response status: {response.status_code}'
+                )
+                logger.debug(f'[Azure DevOps] Response URL: {response.url}')
 
                 # Handle token refresh if needed
                 if self.refresh and self._has_token_expired(response.status_code):
@@ -222,8 +244,17 @@ class AzureDevOpsService(
                 return response.json(), headers
 
         except httpx.HTTPStatusError as e:
+            # Log detailed error information
+            logger.error(
+                f'[Azure DevOps] HTTPStatusError - Status: {e.response.status_code}, '
+                f'URL: {e.request.url}, Response: {e.response.text[:500]}'
+            )
             raise self.handle_http_status_error(e)
         except httpx.HTTPError as e:
+            # Log detailed error information
+            logger.error(
+                f'[Azure DevOps] HTTPError - Type: {type(e).__name__}, Error: {str(e)}'
+            )
             raise self.handle_http_error(e)
 
     def _parse_repository(self, repository: str) -> tuple[str, str, str]:

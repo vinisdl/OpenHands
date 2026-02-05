@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 from pydantic import SecretStr
 
+from openhands.core.logger import openhands_logger as logger
 from openhands.integrations.protocols.http_client import HTTPClient
 from openhands.integrations.service_types import (
     BaseGitService,
@@ -77,8 +78,15 @@ class AzureDevOpsMixinBase(BaseGitService, HTTPClient):
             Tuple of (org_enc, project_enc, repo_enc) - all URL-encoded
         """
         org, project, repo = self._parse_repository(repository)
-        return (
-            self._encode_url_component(org),
-            self._encode_url_component(project),
-            self._encode_url_component(repo),
+        org_enc = self._encode_url_component(org)
+        project_enc = self._encode_url_component(project)
+        repo_enc = self._encode_url_component(repo)
+
+        logger.debug(
+            f'[Azure DevOps Base] Encoding repository components - '
+            f'org: "{org}" -> "{org_enc}", '
+            f'project: "{project}" -> "{project_enc}", '
+            f'repo: "{repo}" -> "{repo_enc}"'
         )
+
+        return (org_enc, project_enc, repo_enc)

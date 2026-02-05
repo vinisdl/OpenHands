@@ -157,7 +157,8 @@ async def _determine_org_repo_path(
     Examples:
         - GitHub/Bitbucket: ('owner/.openhands', 'owner')
         - GitLab: ('owner/openhands-config', 'owner')
-        - Azure DevOps: ('org/openhands-config/openhands-config', 'org')
+        - Azure DevOps (sem project): ('org/openhands-config/openhands-config', 'org')
+        - Azure DevOps (com project): ('org/project/openhands-config', 'org')
     """
     repo_parts = selected_repository.split('/')
 
@@ -174,7 +175,13 @@ async def _determine_org_repo_path(
     if is_gitlab:
         org_openhands_repo = f'{org_name}/openhands-config'
     elif is_azure_devops:
-        org_openhands_repo = f'{org_name}/openhands-config/openhands-config'
+        # Se tiver project configurado (3 partes: org/project/repo), usar org/project/openhands-config
+        # Caso contrário, usar org/openhands-config/openhands-config
+        if len(repo_parts) >= 3:
+            project_name = repo_parts[1]
+            org_openhands_repo = f'{org_name}/{project_name}/openhands-config'
+        else:
+            org_openhands_repo = f'{org_name}/openhands-config/openhands-config'
     else:
         org_openhands_repo = f'{org_name}/.openhands'
 
