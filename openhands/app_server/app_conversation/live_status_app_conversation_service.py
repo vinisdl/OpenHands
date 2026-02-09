@@ -81,7 +81,7 @@ from openhands.integrations.provider import ProviderType
 from openhands.sdk import Agent, AgentContext, LocalWorkspace
 from openhands.sdk.llm import LLM
 from openhands.sdk.plugin import PluginSource
-from openhands.sdk.secret import LookupSecret, SecretValue, StaticSecret
+from openhands.sdk.secret import SecretValue, StaticSecret
 from openhands.sdk.utils.paging import page_iterator
 from openhands.sdk.workspace.remote.async_remote_workspace import AsyncRemoteWorkspace
 from openhands.server.types import AppMode
@@ -269,6 +269,15 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             body_json = start_conversation_request.model_dump(
                 mode='json', context={'expose_secrets': True}
             )
+            # Ensure secrets are sent as a flat name->value dict so the agent server
+            # can load them into the Secret Registry (update_secrets expects plain strings)
+            flat_secrets = self._secrets_to_flat_dict(
+                start_conversation_request.secrets
+                if getattr(start_conversation_request, 'secrets', None)
+                else None
+            )
+            if flat_secrets:
+                body_json['secrets'] = flat_secrets
             # Construct the full URL for the request
             conversation_url = f'{agent_server_url.rstrip("/")}/api/conversations'
             _logger.info(
@@ -597,6 +606,10 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
     async def _setup_secrets_for_git_providers(self, user: UserInfo) -> dict:
         """Set up secrets for all git provider authentication.
 
+        Always uses StaticSecret so the agent server receives secret values in the
+        conversation start request body. LookupSecret is not used because the agent
+        server runs inside a sandbox that often cannot reach web_url to resolve secrets.
+
         Args:
             user: User information containing authentication details
 
@@ -610,7 +623,8 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         if not provider_tokens:
             return secrets
 
-        # Create secrets for each provider token
+        # Resolve each provider token to StaticSecret so the agent server receives
+        # the values in the POST body (sandbox typically cannot reach web_url for lookup)
         for provider_type, provider_token in provider_tokens.items():
             if not provider_token.token:
                 continue
@@ -618,31 +632,36 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             secret_name = f'{provider_type.name}_TOKEN'
             description = f'{provider_type.name} authentication token'
 
-            if self.web_url:
-                # Create an access token for web-based authentication
-                access_token = self.jwt_service.create_jws_token(
-                    payload={
-                        'user_id': user.id,
-                        'provider_type': provider_type.value,
-                    },
-                    expires_in=self.access_token_hard_timeout,
+            static_token = await self.user_context.get_latest_token(provider_type)
+            if static_token:
+                secrets[secret_name] = StaticSecret(
+                    value=static_token, description=description
                 )
-                headers = {'X-Access-Token': access_token}
-
-                secrets[secret_name] = LookupSecret(
-                    url=self.web_url + '/api/v1/webhooks/secrets',
-                    headers=headers,
-                    description=description,
-                )
-            else:
-                # Use static token for environments without web URL access
-                static_token = await self.user_context.get_latest_token(provider_type)
-                if static_token:
-                    secrets[secret_name] = StaticSecret(
-                        value=static_token, description=description
-                    )
 
         return secrets
+
+    @staticmethod
+    def _secrets_to_flat_dict(secrets: dict[str, SecretValue] | None) -> dict[str, str]:
+        """Convert secrets to a flat name->value dict for the agent server payload.
+
+        The agent server Secret Registry expects update_secrets() with plain strings.
+        Guarantees the payload has this format so secrets are loaded regardless of
+        SDK serialization of StaticSecret/LookupSecret.
+        """
+        if not secrets:
+            return {}
+        flat: dict[str, str] = {}
+        for name, secret_value in secrets.items():
+            if not isinstance(secret_value, StaticSecret):
+                continue
+            val = secret_value.value
+            if val is None:
+                continue
+            if hasattr(val, 'get_secret_value'):
+                flat[name] = val.get_secret_value()
+            else:
+                flat[name] = str(val)
+        return flat
 
     def _configure_llm(self, user: UserInfo, llm_model: str | None) -> LLM:
         """Configure LLM settings.

@@ -27,8 +27,8 @@ services:
     container_name: openhands-app-${DATE:-}
     environment:
       # Agent Server
-      - AGENT_SERVER_IMAGE_REPOSITORY=${AGENT_SERVER_IMAGE_REPOSITORY:-ghcr.io/openhands/agent-server}
-      - AGENT_SERVER_IMAGE_TAG=${AGENT_SERVER_IMAGE_TAG:-31536c8-python}
+      - AGENT_SERVER_IMAGE_REPOSITORY=agent
+      - AGENT_SERVER_IMAGE_TAG=latest
       #- SANDBOX_USER_ID=${SANDBOX_USER_ID:-1234} # enable this only if you want a specific non-root sandbox user but you will have to manually adjust permissions of ~/.openhands for this user
 
       # Workspace

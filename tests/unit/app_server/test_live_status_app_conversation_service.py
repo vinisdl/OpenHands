@@ -33,7 +33,7 @@ from openhands.app_server.user.user_context import UserContext
 from openhands.integrations.provider import ProviderToken, ProviderType
 from openhands.sdk import Agent, Event
 from openhands.sdk.llm import LLM
-from openhands.sdk.secret import LookupSecret, StaticSecret
+from openhands.sdk.secret import StaticSecret
 from openhands.sdk.workspace import LocalWorkspace
 from openhands.sdk.workspace.remote.async_remote_workspace import AsyncRemoteWorkspace
 from openhands.server.types import AppMode
@@ -112,11 +112,13 @@ class TestLiveStatusAppConversationService:
 
     @pytest.mark.asyncio
     async def test_setup_secrets_for_git_providers_with_web_url(self):
-        """Test _setup_secrets_for_git_providers with web URL (creates access token)."""
+        """Test _setup_secrets_for_git_providers always uses StaticSecret for agent server."""
         # Arrange
         base_secrets = {}
         self.mock_user_context.get_secrets.return_value = base_secrets
-        self.mock_jwt_service.create_jws_token.return_value = 'test_access_token'
+        self.mock_user_context.get_latest_token = AsyncMock(
+            side_effect=lambda pt: 'github_token' if pt == ProviderType.GITHUB else 'gitlab_token'
+        )
 
         # Mock provider tokens
         provider_tokens = {
@@ -130,31 +132,24 @@ class TestLiveStatusAppConversationService:
         # Act
         result = await self.service._setup_secrets_for_git_providers(self.mock_user)
 
-        # Assert
+        # Assert - always StaticSecret so agent server receives values in request body
         assert 'GITHUB_TOKEN' in result
         assert 'GITLAB_TOKEN' in result
-        assert isinstance(result['GITHUB_TOKEN'], LookupSecret)
-        assert isinstance(result['GITLAB_TOKEN'], LookupSecret)
-        assert (
-            result['GITHUB_TOKEN'].url
-            == 'https://test.example.com/api/v1/webhooks/secrets'
-        )
-        assert result['GITHUB_TOKEN'].headers['X-Access-Token'] == 'test_access_token'
-        # Verify descriptions are included
+        assert isinstance(result['GITHUB_TOKEN'], StaticSecret)
+        assert isinstance(result['GITLAB_TOKEN'], StaticSecret)
+        assert result['GITHUB_TOKEN'].value.get_secret_value() == 'github_token'
+        assert result['GITLAB_TOKEN'].value.get_secret_value() == 'gitlab_token'
         assert result['GITHUB_TOKEN'].description == 'GITHUB authentication token'
         assert result['GITLAB_TOKEN'].description == 'GITLAB authentication token'
 
-        # Should be called twice, once for each provider
-        assert self.mock_jwt_service.create_jws_token.call_count == 2
-
     @pytest.mark.asyncio
     async def test_setup_secrets_for_git_providers_with_saas_mode(self):
-        """Test _setup_secrets_for_git_providers with SaaS mode uses LookupSecret with X-Access-Token."""
+        """Test _setup_secrets_for_git_providers with SaaS mode uses StaticSecret for agent server."""
         # Arrange
         self.service.app_mode = 'saas'
         base_secrets = {}
         self.mock_user_context.get_secrets.return_value = base_secrets
-        self.mock_jwt_service.create_jws_token.return_value = 'test_access_token'
+        self.mock_user_context.get_latest_token = AsyncMock(return_value='gitlab_token')
 
         # Mock provider tokens
         provider_tokens = {
@@ -167,16 +162,12 @@ class TestLiveStatusAppConversationService:
         # Act
         result = await self.service._setup_secrets_for_git_providers(self.mock_user)
 
-        # Assert
+        # Assert - always StaticSecret so agent server receives values in request body
         assert 'GITLAB_TOKEN' in result
-        lookup_secret = result['GITLAB_TOKEN']
-        assert isinstance(lookup_secret, LookupSecret)
-        assert 'X-Access-Token' in lookup_secret.headers
-        assert lookup_secret.headers['X-Access-Token'] == 'test_access_token'
-        # Verify no cookie is included (authentication is via X-Access-Token only)
-        assert 'Cookie' not in lookup_secret.headers
-        # Verify description is included
-        assert lookup_secret.description == 'GITLAB authentication token'
+        static_secret = result['GITLAB_TOKEN']
+        assert isinstance(static_secret, StaticSecret)
+        assert static_secret.value.get_secret_value() == 'gitlab_token'
+        assert static_secret.description == 'GITLAB authentication token'
 
     @pytest.mark.asyncio
     async def test_setup_secrets_for_git_providers_without_web_url(self):
@@ -238,7 +229,15 @@ class TestLiveStatusAppConversationService:
         # Arrange
         base_secrets = {}
         self.mock_user_context.get_secrets.return_value = base_secrets
-        self.mock_jwt_service.create_jws_token.return_value = 'test_access_token'
+
+        def token_for_provider(provider_type):
+            return {
+                ProviderType.GITHUB: 'github_token',
+                ProviderType.GITLAB: 'gitlab_token',
+                ProviderType.BITBUCKET: 'bitbucket_token',
+            }.get(provider_type, None)
+
+        self.mock_user_context.get_latest_token = AsyncMock(side_effect=token_for_provider)
 
         # Mock provider tokens for multiple providers
         provider_tokens = {
@@ -253,17 +252,17 @@ class TestLiveStatusAppConversationService:
         # Act
         result = await self.service._setup_secrets_for_git_providers(self.mock_user)
 
-        # Assert - verify all secrets have correct descriptions
+        # Assert - verify all secrets are StaticSecret with correct descriptions
         assert 'GITHUB_TOKEN' in result
-        assert isinstance(result['GITHUB_TOKEN'], LookupSecret)
+        assert isinstance(result['GITHUB_TOKEN'], StaticSecret)
         assert result['GITHUB_TOKEN'].description == 'GITHUB authentication token'
 
         assert 'GITLAB_TOKEN' in result
-        assert isinstance(result['GITLAB_TOKEN'], LookupSecret)
+        assert isinstance(result['GITLAB_TOKEN'], StaticSecret)
         assert result['GITLAB_TOKEN'].description == 'GITLAB authentication token'
 
         assert 'BITBUCKET_TOKEN' in result
-        assert isinstance(result['BITBUCKET_TOKEN'], LookupSecret)
+        assert isinstance(result['BITBUCKET_TOKEN'], StaticSecret)
         assert result['BITBUCKET_TOKEN'].description == 'BITBUCKET authentication token'
 
     @pytest.mark.asyncio
