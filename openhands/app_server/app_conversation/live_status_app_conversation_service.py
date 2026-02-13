@@ -269,15 +269,15 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             body_json = start_conversation_request.model_dump(
                 mode='json', context={'expose_secrets': True}
             )
-            # Ensure secrets are sent as a flat name->value dict so the agent server
-            # can load them into the Secret Registry (update_secrets expects plain strings)
-            flat_secrets = self._secrets_to_flat_dict(
+            # Send secrets in the format expected by the agent-server API: each value
+            # is an object {"kind": "StaticSecret", "value": "...", "description": "..."}.
+            agent_server_secrets = self._secrets_to_agent_server_format(
                 start_conversation_request.secrets
                 if getattr(start_conversation_request, 'secrets', None)
                 else None
             )
-            if flat_secrets:
-                body_json['secrets'] = flat_secrets
+            if agent_server_secrets:
+                body_json['secrets'] = agent_server_secrets
             # Agent server SDK expects initial_message.content as a list of dicts, not a
             # string (_validate_subtype uses .pop() on dict). Normalize to avoid 500.
             body_json = self._normalize_start_conversation_body(body_json)
@@ -846,13 +846,41 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         return body
 
     @staticmethod
-    def _secrets_to_flat_dict(secrets: dict[str, SecretValue] | None) -> dict[str, str]:
-        """Convert secrets to a flat name->value dict for the agent server payload.
+    def _secrets_to_agent_server_format(
+        secrets: dict[str, SecretValue] | None,
+    ) -> dict[str, dict[str, Any]]:
+        """Convert secrets to the format expected by the agent-server API.
 
-        The agent server Secret Registry expects update_secrets() with plain strings.
-        Guarantees the payload has this format so secrets are loaded regardless of
-        SDK serialization of StaticSecret/LookupSecret.
+        Each value must be an object with kind and value (not a plain string), so the
+        agent-server can validate it as SecretSource (e.g. StaticSecret) without
+        depending on client-side string conversion.
+        Returns: {"KEY": {"kind": "StaticSecret", "value": "...", "description": "..."}}
         """
+        if not secrets:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        for name, secret_value in secrets.items():
+            if not isinstance(secret_value, StaticSecret):
+                continue
+            val = secret_value.value
+            if val is None:
+                continue
+            if hasattr(val, 'get_secret_value'):
+                value_str = val.get_secret_value()
+            else:
+                value_str = str(val)
+            entry: dict[str, Any] = {
+                'kind': 'StaticSecret',
+                'value': value_str,
+            }
+            if hasattr(secret_value, 'description') and secret_value.description:
+                entry['description'] = secret_value.description
+            result[name] = entry
+        return result
+
+    @staticmethod
+    def _secrets_to_flat_dict(secrets: dict[str, SecretValue] | None) -> dict[str, str]:
+        """Convert secrets to a flat name->value dict (legacy / internal use)."""
         if not secrets:
             return {}
         flat: dict[str, str] = {}
