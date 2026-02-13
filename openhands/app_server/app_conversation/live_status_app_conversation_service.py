@@ -278,11 +278,27 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
             )
             if flat_secrets:
                 body_json['secrets'] = flat_secrets
+            # Agent server SDK expects initial_message.content as a list of dicts, not a
+            # string (_validate_subtype uses .pop() on dict). Normalize to avoid 500.
+            body_json = self._normalize_start_conversation_body(body_json)
             # Construct the full URL for the request
             conversation_url = f'{agent_server_url.rstrip("/")}/api/conversations'
+            agent_ctx = body_json.get('agent', {}) or {}
+            agent_context = agent_ctx.get('agent_context') or {}
+            skills = agent_context.get('skills') or []
+            llm = (agent_ctx.get('llm') or {})
+            model = llm.get('model', '')
             _logger.info(
                 f'Starting conversation on agent-server: {conversation_url} '
                 f'(sandbox_id={sandbox.id}, sandbox_status={sandbox.status})'
+            )
+            _logger.info(
+                f'POST /api/conversations: conversation_id={body_json.get("conversation_id")}, '
+                f'skills_count={len(skills)}, agent.model={model}, '
+                f'workspace={body_json.get("workspace", {}).get("working_dir")}'
+            )
+            _logger.debug(
+                f'POST /api/conversations skill names: {[s.get("name") for s in skills]}'
             )
 
             response = await self.httpx_client.post(
@@ -292,8 +308,67 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 timeout=self.sandbox_startup_timeout,
             )
 
+            if response.status_code >= 400:
+                try:
+                    err_body = response.text
+                    if response.headers.get('content-type', '').startswith(
+                        'application/json'
+                    ):
+                        err_body = response.json()
+                    _logger.error(
+                        'Agent server error response: status=%s body=%s',
+                        response.status_code,
+                        err_body,
+                    )
+                    # 422 = request body validation failed; log detail in readable form
+                    if response.status_code == 422:
+                        _logger.error(
+                            'POST /api/conversations returned 422 Unprocessable Entity. '
+                            'Check app-server logs for "Agent server error response" (body) and '
+                            '"422 validation error" (field-level errors) to see which fields failed.'
+                        )
+                        if isinstance(err_body, dict):
+                            detail = err_body.get('detail')
+                            if detail is not None:
+                                if isinstance(detail, list):
+                                    for i, e in enumerate(detail):
+                                        loc = e.get('loc', [])
+                                        msg = e.get('msg', '')
+                                        _logger.error(
+                                            'POST /api/conversations 422 validation error [%s]: loc=%s msg=%s',
+                                            i, loc, msg,
+                                        )
+                                else:
+                                    _logger.error(
+                                        'POST /api/conversations 422 detail: %s',
+                                        detail,
+                                    )
+                            _logger.error(
+                                'Fix the field(s) above or align app-server payload with agent-server schema.'
+                            )
+                        else:
+                            _logger.error('POST /api/conversations 422 raw response: %s', err_body)
+                except Exception:  # noqa: S110
+                    _logger.error(
+                        'Agent server error response: status=%s body=(read failed)',
+                        response.status_code,
+                    )
+                # Request para reproduzir no Postman (secrets redactados)
+                body_for_log = dict(body_json)
+                if 'secrets' in body_for_log and body_for_log['secrets']:
+                    body_for_log['secrets'] = {'_redacted': '<%d secrets>' % len(body_for_log['secrets'])}
+                _logger.error(
+                    'POSTMAN REQUEST (erro %s):\n  URL: POST %s\n  Headers: X-Session-API-Key: <redacted> (use a session API key do sandbox)\n  Body (JSON):\n%s',
+                    response.status_code,
+                    conversation_url,
+                    json.dumps(body_for_log, indent=2, ensure_ascii=False),
+                )
             response.raise_for_status()
             info = ConversationInfo.model_validate(response.json())
+            _logger.info(
+                f'POST /api/conversations success: status={response.status_code}, '
+                f'response_conversation_id={getattr(info, "conversation_id", getattr(info, "id", "—"))}'
+            )
 
             # Store info...
             user_id = await self.user_context.get_user_id()
@@ -353,7 +428,20 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         except Exception as exc:
             _logger.exception('Error starting conversation', stack_info=True)
             task.status = AppConversationStartTaskStatus.ERROR
-            task.detail = str(exc)
+            # Mensagem amigável para o usuário + detalhe técnico para suporte
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 500:
+                task.detail = (
+                    'Não foi possível iniciar a conversa no servidor do agente (erro 500). '
+                    'Tente novamente; se persistir, verifique os logs do agent-server.'
+                )
+            else:
+                task.detail = str(exc)
+            _logger.error(
+                'ERRO ao iniciar conversa: task_id=%s sandbox_id=%s detail=%s',
+                task.id,
+                sandbox.id if sandbox else None,
+                task.detail,
+            )
             yield task
 
     async def _build_app_conversations(
@@ -639,6 +727,89 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 )
 
         return secrets
+
+    @staticmethod
+    def _normalize_content_value(content: Any) -> list[dict[str, Any]]:
+        """Ensure content is a list of dicts (content blocks). SDK uses .pop() on each."""
+        if content is None:
+            return []
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+            except (json.JSONDecodeError, TypeError):
+                parsed = None
+            if isinstance(parsed, list):
+                content = parsed
+            elif isinstance(parsed, dict):
+                content = [parsed]
+            else:
+                return [{'type': 'text', 'text': content}]
+        if not isinstance(content, list):
+            return [{'type': 'text', 'text': str(content)}]
+        normalized: list[dict[str, Any]] = []
+        for item in content:
+            if isinstance(item, dict):
+                normalized.append(item)
+            else:
+                normalized.append(
+                    {'type': 'text', 'text': item if isinstance(item, str) else str(item)}
+                )
+        return normalized
+
+    @staticmethod
+    def _normalize_start_conversation_body(body: dict[str, Any]) -> dict[str, Any]:
+        """Ensure every 'content' in the body is a list of dicts so agent server SDK does not raise.
+
+        The agent server SDK (_validate_subtype) expects content to be a list of
+        content-block dicts and uses .pop() on them; if content is a string, it raises
+        AttributeError and returns 500. Walk the whole body and normalize any 'content' key.
+        Also parse any top-level field that is a JSON string (double-encoded payload).
+        """
+        if not isinstance(body, dict):
+            return body
+        # Fix double-encoded JSON: parse any string value that looks like JSON so the
+        # agent server SDK (_validate_subtype) never receives a str where it expects a dict.
+        def walk_and_fix(obj: Any) -> None:
+            if isinstance(obj, dict):
+                for key, value in list(obj.items()):
+                    if key == 'content':
+                        if not (
+                            isinstance(value, list)
+                            and all(isinstance(x, dict) for x in value)
+                        ):
+                            _logger.debug(
+                                'Normalizing content for agent server (was %s)',
+                                type(value).__name__,
+                            )
+                        obj[key] = LiveStatusAppConversationService._normalize_content_value(
+                            value
+                        )
+                        walk_and_fix(obj[key])
+                    elif isinstance(value, str) and value.strip().startswith(
+                        ('{', '[')
+                    ):
+                        try:
+                            obj[key] = json.loads(value)
+                            walk_and_fix(obj[key])
+                        except (json.JSONDecodeError, TypeError):
+                            walk_and_fix(value)
+                    else:
+                        walk_and_fix(value)
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    if isinstance(item, str) and item.strip().startswith(
+                        ('{', '[')
+                    ):
+                        try:
+                            obj[i] = json.loads(item)
+                            walk_and_fix(obj[i])
+                        except (json.JSONDecodeError, TypeError):
+                            walk_and_fix(item)
+                    else:
+                        walk_and_fix(item)
+
+        walk_and_fix(body)
+        return body
 
     @staticmethod
     def _secrets_to_flat_dict(secrets: dict[str, SecretValue] | None) -> dict[str, str]:
@@ -1193,6 +1364,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
         # Set up secrets for all git providers
         secrets = await self._setup_secrets_for_git_providers(user)
+        _logger.debug(
+            '_build_start_conversation_request_for_user: got %d secrets (names=%s)',
+            len(secrets),
+            list(secrets.keys()) if secrets else [],
+        )
 
         # Configure LLM and MCP
         llm, mcp_config = await self._configure_llm_and_mcp(user, llm_model)

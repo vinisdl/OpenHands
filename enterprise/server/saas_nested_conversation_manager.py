@@ -542,8 +542,19 @@ class SaasNestedConversationManager(ConversationManager):
         replay_json: str | None,
     ):
         """Create the nested conversation."""
+        # Agent server expects initial_user_msg as an object (SendMessageRequest-style)
+        # with content list, not a raw string (SDK validation uses .pop() on dict).
+        raw_content = initial_user_msg.content if initial_user_msg else None
+        if raw_content is not None:
+            initial_user_msg_payload: Any = {
+                'role': 'user',
+                'content': [{'type': 'text', 'text': raw_content}],
+            }
+        else:
+            initial_user_msg_payload = None
+
         init_conversation: dict[str, Any] = {
-            'initial_user_msg': initial_user_msg.content if initial_user_msg else None,
+            'initial_user_msg': initial_user_msg_payload,
             'image_urls': [],
             'replay_json': replay_json,
             'conversation_id': sid,
