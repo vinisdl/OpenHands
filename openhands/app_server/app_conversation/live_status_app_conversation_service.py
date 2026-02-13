@@ -729,6 +729,34 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         return secrets
 
     @staticmethod
+    def _content_to_string_for_skill(content: Any) -> str:
+        """Ensure Skill.content is a string. If content is list of blocks, extract text."""
+        if content is None:
+            return ''
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'text':
+                    parts.append(str(item.get('text', '')))
+                elif isinstance(item, str):
+                    parts.append(item)
+                else:
+                    parts.append(str(item))
+            return '\n'.join(parts)
+        return str(content)
+
+    @staticmethod
+    def _is_skill_object(obj: dict[str, Any]) -> bool:
+        """True if obj looks like a Skill (has name + at least one of trigger/source/description)."""
+        if not isinstance(obj, dict) or 'name' not in obj:
+            return False
+        return any(
+            k in obj for k in ('trigger', 'source', 'is_agentskills_format', 'description')
+        )
+
+    @staticmethod
     def _normalize_content_value(content: Any) -> list[dict[str, Any]]:
         """Ensure content is a list of dicts (content blocks). SDK uses .pop() on each."""
         if content is None:
@@ -758,32 +786,38 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
     @staticmethod
     def _normalize_start_conversation_body(body: dict[str, Any]) -> dict[str, Any]:
-        """Ensure every 'content' in the body is a list of dicts so agent server SDK does not raise.
+        """Normalize body for agent-server: message content as list of blocks, skill content as string.
 
-        The agent server SDK (_validate_subtype) expects content to be a list of
-        content-block dicts and uses .pop() on them; if content is a string, it raises
-        AttributeError and returns 500. Walk the whole body and normalize any 'content' key.
-        Also parse any top-level field that is a JSON string (double-encoded payload).
+        - initial_message.content and other message-style content: agent server expects list of
+          content-block dicts; normalize to that so SDK (_validate_subtype) does not raise 500.
+        - agent.agent_context.skills[].content: Skill model expects content to be str; keep as
+          string (or convert list of blocks to string) to avoid 422.
+        Also parse any top-level/double-encoded JSON strings.
         """
         if not isinstance(body, dict):
             return body
-        # Fix double-encoded JSON: parse any string value that looks like JSON so the
-        # agent server SDK (_validate_subtype) never receives a str where it expects a dict.
+
         def walk_and_fix(obj: Any) -> None:
             if isinstance(obj, dict):
                 for key, value in list(obj.items()):
                     if key == 'content':
-                        if not (
-                            isinstance(value, list)
-                            and all(isinstance(x, dict) for x in value)
-                        ):
-                            _logger.debug(
-                                'Normalizing content for agent server (was %s)',
-                                type(value).__name__,
+                        if LiveStatusAppConversationService._is_skill_object(obj):
+                            # Skill.content must be string; do not normalize to list of blocks
+                            obj[key] = LiveStatusAppConversationService._content_to_string_for_skill(
+                                value
                             )
-                        obj[key] = LiveStatusAppConversationService._normalize_content_value(
-                            value
-                        )
+                        else:
+                            if not (
+                                isinstance(value, list)
+                                and all(isinstance(x, dict) for x in value)
+                            ):
+                                _logger.debug(
+                                    'Normalizing content for agent server (was %s)',
+                                    type(value).__name__,
+                                )
+                            obj[key] = LiveStatusAppConversationService._normalize_content_value(
+                                value
+                            )
                         walk_and_fix(obj[key])
                     elif isinstance(value, str) and value.strip().startswith(
                         ('{', '[')
