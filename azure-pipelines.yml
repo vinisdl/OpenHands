@@ -25,6 +25,7 @@ parameters:
       - prd
       - easy
       - autoexperts
+      - zaffari-aplicacoes
 
 variables:
   - group: smart-squad-doc-base
@@ -36,6 +37,8 @@ variables:
     - group: smart-squad-openhands-easy
   - ${{ if eq(parameters.environment, 'autoexperts') }}:
     - group: smart-squad-openhands-autoexperts
+  - ${{ if eq(parameters.environment, 'zaffari-aplicacoes') }}:
+    - group: smart-squad-openhands-zaffari-aplicacoes-prd
 
 
 
